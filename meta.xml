@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1">
+  <name>Plants vs Zombies Wii</name>
+  <coder>Open Source Contributors</coder>
+  <version>0.1.0</version>
+  <release_date>20260710</release_date>
+  <short_description>PvZ-style lawn defense homebrew</short_description>
+  <long_description>Open-source Plants vs. Zombies inspired homebrew for Nintendo Wii. Plant seeds on a grid using Wiimote and optional Nunchuk controls.</long_description>
+</app>

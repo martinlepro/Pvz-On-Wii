@@ -1,0 +1,80 @@
+name: Build Wii ISO
+
+# Builds the PvZ Wii homebrew ISO entirely on GitHub's own servers.
+#
+# Nothing runs on your machine, nothing gets downloaded to your machine, and
+# there is nothing to configure -- no local toolchain, no environment
+# variables, no PATH changes. Push to GitHub (or click "Run workflow" on the
+# Actions tab), wait for the green check, then open the run and download
+# "pvz_wii-build" from its Artifacts section at the bottom of the page.
+#
+# devkitPPC/libogc/the Wii portlibs come from devkitPro's own official Docker
+# image (they're only distributed via devkitPro's pacman server, so they
+# can't be vendored in this repo). GRRLIB is built from the source already
+# bundled in vendor/grrlib-src -- no network needed for that part. WIT
+# (Wiimms ISO Tools) is only distributed from wit.wiimm.de, so it's fetched
+# here too -- a ~7MB file over GitHub's own connection, done in a couple of
+# seconds, not the hours it could take on a home connection/antivirus setup.
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Official devkitPro image: devkitPPC, libogc and the Wii portlibs are
+    # already installed and on PATH, with DEVKITPRO/DEVKITPPC already set.
+    # https://hub.docker.com/r/devkitpro/devkitppc
+    container:
+      image: devkitpro/devkitppc:latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Make sure Wii dev packages are present
+        # The image already ships these; this is just a fast, harmless safety
+        # net in case a future image slims down. Takes a few seconds either way.
+        run: |
+          dkp-pacman -Sy --noconfirm
+          dkp-pacman -S --needed --noconfirm wii-dev ppc-libpng ppc-freetype ppc-libjpeg-turbo ppc-bzip2
+
+      - name: Build GRRLIB (from vendor/grrlib-src -- no network needed)
+        run: |
+          cd vendor/grrlib-src/GRRLIB
+          make clean all install
+
+      - name: Fetch Wiimms ISO Tools (WIT)
+        env:
+          # https://wit.wiimm.de/download.html -- bump this if a newer
+          # release shows up there.
+          WIT_VERSION: v3.05a-r8638
+        run: |
+          set -euo pipefail
+          mkdir -p tools/wit /tmp/wit-extract
+          curl -fsSL -o /tmp/wit.tar.gz "https://wit.wiimm.de/download/wit-${WIT_VERSION}-x86_64.tar.gz"
+          tar -xzf /tmp/wit.tar.gz -C /tmp/wit-extract
+          WIT_BIN="$(find /tmp/wit-extract -type f -name wit -perm -u+x | head -n1)"
+          if [ -z "$WIT_BIN" ]; then
+            echo "::error::wit binary not found inside the downloaded archive"
+            find /tmp/wit-extract
+            exit 1
+          fi
+          cp "$WIT_BIN" tools/wit/wit
+          chmod +x tools/wit/wit
+          tools/wit/wit --version || true
+
+      - name: Build .dol + ISO + WBFS
+        run: make iso
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvz_wii-build
+          path: |
+            output/disc/*.iso
+            output/disc/*.wbfs
+            output/homebrew/**
+          if-no-files-found: error

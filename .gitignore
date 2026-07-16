@@ -1,0 +1,21 @@
+# Build artifacts
+/build/
+*.elf
+*.dol
+*.map
+*.iso
+*.wbfs
+
+# Packaged outputs
+/output/
+/disc/staging/
+
+# Local, project-relocated tool installs -- fetched automatically by
+# scripts/setup_toolchain.bat after cloning (see tools/*/README.md)
+/tools/wit/*
+!/tools/wit/README.md
+/tools/devkitpro/*
+!/tools/devkitpro/README.md
+
+# Optional custom HBC banner
+/icon.png

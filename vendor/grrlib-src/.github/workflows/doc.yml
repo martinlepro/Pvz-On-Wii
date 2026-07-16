@@ -1,0 +1,38 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+
+  doc:
+    name: Deploy documentation
+    runs-on: ubuntu-24.04
+
+    steps:
+
+    - name: Checkout the Git repository
+      uses: actions/checkout@v7
+
+    - name: Install doxygen
+      run: |
+        wget https://www.doxygen.nl/files/doxygen-1.16.1.linux.bin.tar.gz -O - | tar -xzv --directory=/tmp/
+        cd /tmp/doxygen-*
+        sudo make install
+        sudo apt-get update
+        sudo apt-get install doxygen-latex graphviz
+
+    - name: Generate documentation
+      run: |
+        doxygen grrlib.doxygen >/dev/null
+        make --directory=latex >/dev/null
+        touch html/.nojekyll
+        mv latex/refman.pdf html/PDF-documentation.pdf
+
+    - name: Deploy to GitHub Pages
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        branch: gh-pages
+        folder: html

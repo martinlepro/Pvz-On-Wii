@@ -1,0 +1,27 @@
+# Folder
+build
+
+# Compiler-generated binary
+*.o
+*.d
+*.map
+
+# Executable file
+*.dol
+*.elf
+
+# Compiled static library
+*.a
+
+# Visual Studio Code
+.vscode/*
+
+# Programmer's Notepad state file
+*.pnps
+
+# Generated doxygen documentation
+/html
+/latex
+
+# Temporary file
+*.tmp

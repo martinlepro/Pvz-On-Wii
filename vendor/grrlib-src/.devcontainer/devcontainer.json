@@ -1,0 +1,11 @@
+{
+    "name": "devkitPPC",
+    "image": "devkitpro/devkitppc:latest",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools"
+            ]
+        }
+    }
+}

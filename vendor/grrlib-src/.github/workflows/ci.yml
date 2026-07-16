@@ -1,0 +1,33 @@
+name: Continuous Integration
+
+on: [push, pull_request]
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:latest
+
+    steps:
+
+    - name: Checkout the Git repository
+      uses: actions/checkout@v7
+
+    - name: Build library and examples
+      run: |
+        make -C GRRLIB clean all install
+        make -C GRRLIB/GRRLIB PLATFORM=cube clean all install
+        make -C examples
+        /opt/devkitpro/portlibs/wii/bin/powerpc-eabi-cmake -S $GITHUB_WORKSPACE/examples/cmake -B /tmp/build-wii -G Ninja
+        cmake --build /tmp/build-wii --verbose
+
+    - uses: actions/upload-artifact@master
+      with:
+        name: examples
+        path: |
+          examples/**/*.elf
+          !examples/template/*
+          examples/gamecube/**/*.dol
+          !examples/gamecube/template/*
