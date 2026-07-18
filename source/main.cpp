@@ -19,7 +19,7 @@ int main(int argc, char** argv)
 
     WPAD_Init();
 
-    fatInit();
+    fatInit(32, true);
 
     if (!Render_Init())
         return 1;
