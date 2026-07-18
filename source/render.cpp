@@ -833,16 +833,12 @@ bool Render_Init(void)
 
     memset(&s_assets, 0, sizeof(s_assets));
 
-    /* Font: use GRRLIB built-in bitmap font as the primary renderer.
-     * The embedded TTF is also loaded and stored in s_font in case
-     * GRRLIB_PrintfTTF is ever preferred over GRRLIB_Printf, but the
-     * bitmap font is what DrawLabel() and Render_DrawText() actually
-     * use because s_bitmapFont is set -- they only fall through to
-     * GRRLIB_PrintfTTF when s_font is set AND s_bitmapFont is NULL.
-     * This arrangement gives us reliable text display regardless of
-     * whether freetype/FTGL can parse the TTF on any given platform. */
-    s_bitmapFont = BitmapFont_CreateTexture();
-    s_font = NULL; /* TTF disabled for now -- use bitmap font always */
+    /* Font: load embedded TTF only — bitmap font creation disabled until
+     * we can confirm GRRLIB_CreateEmptyTexture works on this platform. */
+    s_bitmapFont = NULL;
+    s_font = GRRLIB_LoadTTF(s_embeddedFontData, s_embeddedFontSize);
+    if (!s_font)
+        s_font = GRRLIB_LoadTTFFromFile("assets/font.ttf");
 
     /* Optional PNGs -- each load gracefully returns NULL if the file isn't
      * there yet, and every draw call falls back to a flat-colored rectangle. */
