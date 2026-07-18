@@ -143,7 +143,7 @@ GRRLIB_texImg* BitmapFont_CreateTexture(void)
                 else
                     color = 0x00000000;
 
-                tex->data[py * texW + px] = color;
+                ((u32*)tex->data)[py * texW + px] = color;
             }
         }
     }
