@@ -178,9 +178,9 @@ static void DrawDashedBreathingBorder(s16 x, s16 y, s16 w, s16 h, u32 color, u8 
     }
 }
 
-static s16 BitmapFontZoomForSize(unsigned int ttfSize)
+static f32 BitmapFontZoomForSize(unsigned int ttfSize)
 {
-    return (s16)(ttfSize * 12);
+    return (f32)ttfSize / 8.0f;
 }
 
 static void DrawLabel(s16 x, s16 y, u32 color, unsigned int size, const char* text)
