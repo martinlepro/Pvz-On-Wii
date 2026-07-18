@@ -846,6 +846,8 @@ bool Render_Init(void)
     s_font = GRRLIB_LoadTTFFromFile("assets/font.ttf");
     if (!s_font)
         s_font = GRRLIB_LoadTTFFromFile("apps/pvz_wii/assets/font.ttf");
+    if (!s_font)
+        s_font = GRRLIB_LoadTTFFromFile("assets/font/Brianne_s_hand.ttf");
     s_bitmapFont = NULL;
     if (!s_font)
         s_bitmapFont = BitmapFont_CreateTexture();
