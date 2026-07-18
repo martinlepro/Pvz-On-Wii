@@ -354,10 +354,13 @@ bool Zombie_UpdateAll(GameContext* game) {
          * ================================================================= */
         if (flags & ZFLAG_SPAWNS_DANCERS && !z->specialFlag) {
             if (z->x <= (f32)GRID_COLS * 0.6f) {
+                bool anySpawned = false;
                 for (int d = 0; d < 4; d++) {
-                    Zombie_Spawn(game, ZOMBIE_BACKUP_DANCER, z->row);
+                    if (Zombie_Spawn(game, ZOMBIE_BACKUP_DANCER, z->row))
+                        anySpawned = true;
                 }
-                z->specialFlag = true;
+                if (anySpawned)
+                    z->specialFlag = true;
             }
         }
 
@@ -377,8 +380,7 @@ bool Zombie_UpdateAll(GameContext* game) {
                 z->specialFlag = true;
                 z->state = ZSTATE_VAULTING;
                 z->specialTimer = TARGET_FPS / 4; /* 0.25s vault animation */
-                z->x = (f32)(col + 1); /* skip the plant */
-                if (cell) { cell->health = 0; cell->plant = PLANT_NONE; }
+                z->x = (f32)(col + 1); /* vault over the plant without destroying it */
                 continue;
             }
         }
@@ -394,7 +396,9 @@ bool Zombie_UpdateAll(GameContext* game) {
                     z->speedMul = def->speedMul; /* lose the bounce speed bonus */
                     z->specialFlag = true; /* pogo popped */
                 } else {
-                    z->x = (f32)(col + 1); /* bounce over */
+                    s8 bounceCol = col + 1;
+                    if (bounceCol > GRID_COLS) bounceCol = GRID_COLS;
+                    z->x = (f32)bounceCol; /* bounce over */
                 }
             } else {
                 z->state = ZSTATE_WALKING;
@@ -428,8 +432,8 @@ bool Zombie_UpdateAll(GameContext* game) {
          *  GARGANTUAR: throw Imp at half health
          * ================================================================= */
         if (flags & ZFLAG_THROWS_IMP && !z->specialFlag && z->health <= def->health / 2) {
-            Zombie_Spawn(game, ZOMBIE_IMP, z->row);
-            z->specialFlag = true;
+            if (Zombie_Spawn(game, ZOMBIE_IMP, z->row))
+                z->specialFlag = true;
         }
 
         /* =================================================================

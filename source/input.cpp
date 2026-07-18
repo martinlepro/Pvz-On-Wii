@@ -56,7 +56,7 @@ static s8 ComputeHoveredSeedSlot(f32 x, f32 y, bool valid)
 
     for (s8 i = 0; i < SEED_SLOT_COUNT; ++i)
     {
-        s16 slotX = SEED_BAR_PADDING + i * (SEED_SLOT_WIDTH + SEED_BAR_PADDING);
+        s16 slotX = SEED_BAR_PADDING + 64 + i * (SEED_SLOT_WIDTH + SEED_BAR_PADDING);
         if (x >= (f32)slotX && x < (f32)(slotX + SEED_SLOT_WIDTH))
             return i;
     }

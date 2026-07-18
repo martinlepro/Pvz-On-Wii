@@ -330,7 +330,7 @@ static void CheckInstants(GameContext* game) {
                     int zi = Zombie_ClosestToCell(game->zombies, col, row, 1.5f);
                     if (zi >= 0 && cell->shootTimer == 0) {
                         Zombie* target = &game->zombies[zi];
-                        if (target->health <= 400 || zi < 0) {
+                        if (target->health <= 400) {
                             target->state = ZSTATE_DYING;
                             target->deathTimer = ZOMBIE_DEATH_FADE_FRAMES;
                             cell->shootTimer = 42 * TARGET_FPS / 60; /* ~42s chewing */
@@ -579,16 +579,15 @@ static void CheckSpikeweed(GameContext* game) {
                 if (z->row != (u8)row) continue;
                 s8 zcol = (s8)floorf(z->x);
                 if (zcol == col) {
+                    if (cell->shootTimer >= TARGET_FPS)
+                        break; /* already damaged this second */
                     z->health -= (s16)dmg;
                     if (z->health <= 0) {
                         z->state = ZSTATE_DYING;
                         z->deathTimer = ZOMBIE_DEATH_FADE_FRAMES;
                     }
-                    /* Spikeweed/rock can only damage once per ~1s */
-                    if (cell->shootTimer < TARGET_FPS)
-                        cell->shootTimer++;
-                    if (cell->shootTimer >= TARGET_FPS)
-                        break; /* already damaged this second */
+                    cell->shootTimer = TARGET_FPS;
+                    break; /* only damage one zombie per frame */
                 }
             }
         }

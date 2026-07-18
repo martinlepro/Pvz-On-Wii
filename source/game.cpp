@@ -284,7 +284,8 @@ void Game_Reset(GameContext* game)
     if (!game)
         return;
 
-    for (s8 row = 0; row < GRID_ROWS; ++row)
+    s8 maxRow = (s8)(game->rowCount > 0 ? game->rowCount : GRID_ROWS);
+    for (s8 row = 0; row < maxRow; ++row)
     {
         for (s8 col = 0; col < GRID_COLS; ++col)
         {

@@ -602,7 +602,7 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
                 DrawTextLarge(cx + 10, 60, 0xCCFF66FF, Locale_Str(STR_SURVIVAL));
                 s16 y = 130;
                 int itemCount = SURVIVAL_COUNT + 1;
-                const char* items[12];
+                const char* items[SURVIVAL_COUNT + 1];
                 items[0] = Locale_Str(STR_SURVIVAL_DAY_EASY);
                 items[1] = Locale_Str(STR_SURVIVAL_DAY_HARD);
                 items[2] = Locale_Str(STR_SURVIVAL_NIGHT_EASY);
