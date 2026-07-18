@@ -845,7 +845,7 @@ bool Render_Init(void)
     memset(&s_assets, 0, sizeof(s_assets));
 
     /* Font: embedded TTF first, then file-based fallbacks, then bitmap. */
-    s_font = GRRLIB_LoadTTFFromMem(s_embeddedFontData, s_embeddedFontSize);
+    s_font = GRRLIB_LoadTTF(s_embeddedFontData, s_embeddedFontSize);
     if (!s_font)
         s_font = GRRLIB_LoadTTFFromFile("assets/font.ttf");
     if (!s_font)
