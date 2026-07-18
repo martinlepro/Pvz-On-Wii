@@ -442,8 +442,6 @@ static void DrawWorldBackground(const GameContext* game)
 
 static void DrawLevelBanner(const GameContext* game)
 {
-    if (!s_font) return;
-
     char buf[64];
     if (Survival_IsSurvival(game->currentLevelIndex))
     {
@@ -507,12 +505,9 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
     s16 sunX = SEED_BAR_PADDING + 4;
     s16 sunY = (SEED_BAR_HEIGHT - 40) / 2;
     DrawTexturedBox(s_assets.sunIcon, sunX, sunY, 40, 40, 0xFFFFFFFF, COL_SUN_TEXT, game->frameCount);
-    if (s_font)
-    {
-        char sunBuf[8];
-        snprintf(sunBuf, sizeof(sunBuf), "%u", (unsigned)game->sun);
-        DrawLabel(sunX + 44, sunY + 12, COL_HUD_TEXT, 16, sunBuf);
-    }
+    char sunBuf[8];
+    snprintf(sunBuf, sizeof(sunBuf), "%u", (unsigned)game->sun);
+    DrawLabel(sunX + 44, sunY + 12, COL_HUD_TEXT, 16, sunBuf);
 
     u8 slots = game->selectedCount;
     if (slots > SEED_SLOT_COUNT) slots = SEED_SLOT_COUNT;
@@ -542,12 +537,9 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
         if (!affordable)
             DrawRect(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, 0x00000090);
 
-        if (s_font)
-        {
-            char costBuf[8];
-            snprintf(costBuf, sizeof(costBuf), "%u", cost);
-            DrawLabel(slotX + 4, slotY + SEED_SLOT_HEIGHT - 16, COL_SUN_TEXT, 12, costBuf);
-        }
+        char costBuf[8];
+        snprintf(costBuf, sizeof(costBuf), "%u", cost);
+        DrawLabel(slotX + 4, slotY + SEED_SLOT_HEIGHT - 16, COL_SUN_TEXT, 12, costBuf);
     }
 }
 
@@ -800,9 +792,6 @@ static void DrawReticle(const InputState* input)
 
 static void DrawHud(const GameContext* game, const InputState* input)
 {
-    if (!s_font)
-        return;
-
     char buf[64];
     s16 y = SCREEN_HEIGHT - 20;
 
@@ -1044,14 +1033,11 @@ static void DrawSelectionScreen(const GameContext* game, const InputState* input
                         0xFFFFFFFF, color, game->frameCount);
 
         /* Name below */
-        if (s_font)
-        {
-            const char* name = Game_PlantName(type);
-            s16 labelW = (s16)(strlen(name) * 7);
-            s16 lx = ix + (iconSize - labelW) / 2;
-            if (lx < 0) lx = 0;
-            DrawLabel(lx, iy + iconSize + 2, COL_HUD_TEXT, 10, name);
-        }
+        const char* name = Game_PlantName(type);
+        s16 labelW = (s16)(strlen(name) * 7);
+        s16 lx = ix + (iconSize - labelW) / 2;
+        if (lx < 0) lx = 0;
+        DrawLabel(lx, iy + iconSize + 2, COL_HUD_TEXT, 10, name);
 
         /* Cursor highlight */
         if (isCursor)
