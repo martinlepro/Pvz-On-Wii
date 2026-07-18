@@ -89,6 +89,9 @@ static RenderAssets     s_assets;
 static GRRLIB_ttfFont*  s_font = NULL;
 static GRRLIB_texImg*   s_bitmapFont = NULL;
 
+/* Embedded TTF font (converted from assets/font/Brianne_s_hand.ttf) */
+#include "embedded_font.h"
+
 static const char* s_seedIconPaths[PLANT_TYPE_COUNT] = {
     "assets/seeds/peashooter.png",
     "assets/seeds/sunflower.png",
@@ -841,13 +844,12 @@ bool Render_Init(void)
 
     memset(&s_assets, 0, sizeof(s_assets));
 
-    /* Optional font for HUD/menu text; falls back to a built-in 8x8 bitmap
-     * font so the game always shows readable text even without font.ttf. */
-    s_font = GRRLIB_LoadTTFFromFile("assets/font.ttf");
+    /* Font: embedded TTF first, then file-based fallbacks, then bitmap. */
+    s_font = GRRLIB_LoadTTFFromMem(s_embeddedFontData, s_embeddedFontSize);
+    if (!s_font)
+        s_font = GRRLIB_LoadTTFFromFile("assets/font.ttf");
     if (!s_font)
         s_font = GRRLIB_LoadTTFFromFile("apps/pvz_wii/assets/font.ttf");
-    if (!s_font)
-        s_font = GRRLIB_LoadTTFFromFile("assets/font/Brianne_s_hand.ttf");
     s_bitmapFont = NULL;
     if (!s_font)
         s_bitmapFont = BitmapFont_CreateTexture();
