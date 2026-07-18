@@ -16,6 +16,7 @@
 #include "minigame.h"
 #include "particle.h"
 #include "survival.h"
+#include "bitmap_font.h"
 
 #include <grrlib.h>
 #include <stdio.h>
@@ -86,6 +87,7 @@ typedef struct {
 
 static RenderAssets     s_assets;
 static GRRLIB_ttfFont*  s_font = NULL;
+static GRRLIB_texImg*   s_bitmapFont = NULL;
 
 static const char* s_seedIconPaths[PLANT_TYPE_COUNT] = {
     "assets/seeds/peashooter.png",
@@ -176,10 +178,18 @@ static void DrawDashedBreathingBorder(s16 x, s16 y, s16 w, s16 h, u32 color, u8 
     }
 }
 
+static s16 BitmapFontZoomForSize(unsigned int ttfSize)
+{
+    return (s16)(ttfSize * 12);
+}
+
 static void DrawLabel(s16 x, s16 y, u32 color, unsigned int size, const char* text)
 {
-    if (s_font && text)
+    if (!text) return;
+    if (s_font)
         GRRLIB_PrintfTTF(x, y, s_font, text, size, color);
+    else if (s_bitmapFont)
+        GRRLIB_Printf((f32)x, (f32)y, s_bitmapFont, color, BitmapFontZoomForSize(size), "%s", text);
 }
 
 /** Draws `tex` scaled to fit (w,h) at (x,y) if loaded; otherwise a flat rect. */
@@ -831,9 +841,14 @@ bool Render_Init(void)
 
     memset(&s_assets, 0, sizeof(s_assets));
 
-    /* Optional font for HUD/menu text; falls back to no text at all until
-     * assets/font.ttf is added (gameplay itself never depends on it). */
+    /* Optional font for HUD/menu text; falls back to a built-in 8x8 bitmap
+     * font so the game always shows readable text even without font.ttf. */
     s_font = GRRLIB_LoadTTFFromFile("assets/font.ttf");
+    if (!s_font)
+        s_font = GRRLIB_LoadTTFFromFile("apps/pvz_wii/assets/font.ttf");
+    s_bitmapFont = NULL;
+    if (!s_font)
+        s_bitmapFont = BitmapFont_CreateTexture();
 
     /* Optional PNGs -- each load gracefully returns NULL if the file isn't
      * there yet, and every draw call falls back to a flat-colored rectangle. */
@@ -937,12 +952,32 @@ void Render_Shutdown(void)
         s_font = NULL;
     }
 
+    if (s_bitmapFont)
+    {
+        GRRLIB_FreeTexture(s_bitmapFont);
+        s_bitmapFont = NULL;
+    }
+
     GRRLIB_Exit();
 }
 
 GRRLIB_ttfFont* Render_GetFont(void)
 {
     return s_font;
+}
+
+GRRLIB_texImg* Render_GetBitmapFont(void)
+{
+    return s_bitmapFont;
+}
+
+void Render_DrawText(s16 x, s16 y, u32 color, unsigned int size, const char* text)
+{
+    if (!text) return;
+    if (s_font)
+        GRRLIB_PrintfTTF(x, y, s_font, text, size, color);
+    else if (s_bitmapFont)
+        GRRLIB_Printf((f32)x, (f32)y, s_bitmapFont, color, BitmapFontZoomForSize(size), "%s", text);
 }
 
 /** "Zombies incoming" gauge, bottom-center: fills up over the next

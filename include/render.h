@@ -34,6 +34,13 @@ void Render_Present(void);
  *  modules -- e.g. menu.cpp -- can draw text without loading their own copy. */
 GRRLIB_ttfFont* Render_GetFont(void);
 
+/** Shared bitmap font texture (NULL if TTF was loaded successfully, used as
+ *  fallback when no assets/font.ttf is available). */
+struct GRRLIB_texImg* Render_GetBitmapFont(void);
+
+/** Draw text using either TTF or built-in bitmap font. */
+void Render_DrawText(s16 x, s16 y, u32 color, unsigned int size, const char* text);
+
 #ifdef __cplusplus
 }
 #endif

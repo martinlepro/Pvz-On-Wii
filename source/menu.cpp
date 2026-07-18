@@ -445,16 +445,12 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
 
 static void DrawText(s16 x, s16 y, u32 color, const char* text)
 {
-    GRRLIB_ttfFont* font = Render_GetFont();
-    if (font)
-        GRRLIB_PrintfTTF(x, y, font, text, 16, color);
+    Render_DrawText(x, y, color, 16, text);
 }
 
 static void DrawTextLarge(s16 x, s16 y, u32 color, const char* text)
 {
-    GRRLIB_ttfFont* font = Render_GetFont();
-    if (font)
-        GRRLIB_PrintfTTF(x, y, font, text, 28, color);
+    Render_DrawText(x, y, color, 28, text);
 }
 
 void Menu_Render(const MenuContext* menu, const Settings* settings)

@@ -140,8 +140,14 @@ export HFILES     := $(addsuffix .h,$(subst .,_,$(BINFILES)))
 .PHONY: all iso wbfs homebrew opening-bnr check-wit clean clean-iso run help
 
 all: $(BUILD) $(TARGET).dol homebrew
+	@if [ -x "$(WIT_PATH)" ] || [ -x "$(WIT_PATH).exe" ]; then \
+		echo "==> Building ISO + WBFS"; \
+		TARGET=$(TARGET) WIT_PATH="$(WIT_PATH)" "$(ROOT_DIR)/$(ISO_SCRIPT_SH)" "$(ROOT_DIR)/$(TARGET).dol"; \
+	else \
+		echo "==> ISO/WBFS: skipped (install WIT to enable: make iso WIT_PATH=/path/to/wit)"; \
+	fi
 
-iso: all check-wit
+iso: check-wit
 	@echo "==> Packing Wii disc images"
 	@chmod +x $(ROOT_DIR)/$(ISO_SCRIPT_SH) 2>/dev/null || true
 	@TARGET=$(TARGET) WIT_PATH="$(WIT_PATH)" "$(ROOT_DIR)/$(ISO_SCRIPT_SH)" "$(ROOT_DIR)/$(TARGET).dol"
