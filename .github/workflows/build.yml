@@ -1,0 +1,156 @@
+name: Build Wii
+
+# Builds three independent artifacts:
+#   - "pvz_wii-homebrew" -- boot.dol + meta.xml + assets,
+#     for the Homebrew Channel.
+#   - "pvz_wii-iso"      -- pvz_wii.iso, for Dolphin / burning.
+#   - "pvz_wii-wbfs"     -- pvz_wii.wbfs, for USB Loaders.
+# Each is built independently so a single failing format never blocks the
+# others from shipping. Push to GitHub (or click "Run workflow" on the
+# Actions tab), wait for the green check, then open the run and download
+# from its Artifacts section at the bottom of the page.
+#
+# Each upload-artifact step below points straight at the raw output (a
+# folder for homebrew, a single .iso/.wbfs file for the other two)
+# instead of at a zip we build ourselves. actions/upload-artifact always
+# wraps whatever "path" points to in its own zip for the download button
+# -- so pointing it at a zip we'd already made (as this used to do) meant
+# downloading gave you a zip containing another zip, needing two unzips
+# to reach the real content. Pointing at the raw file/folder leaves
+# GitHub's own zip as the only layer: one download, one unzip, done.
+#
+# devkitPPC/libogc/the Wii portlibs come from devkitPro's own official Docker
+# image (they're only distributed via devkitPro's pacman server, so they
+# can't be vendored in this repo). GRRLIB is cloned fresh from its own repo
+# and built every run (same "fetch at build time, don't commit it" approach
+# as WIT below) -- GitHub's runners have normal internet access, so there's
+# no benefit to vendoring a ~16MB source tree in git just to avoid a
+# `git clone` step, and doing so is exactly what broke this workflow once
+# already (the vendored copy silently went missing from a commit and the
+# build failed with "can't cd to vendor/grrlib-src/GRRLIB").
+#
+# The disc image needs two more things neither of which are (or should be)
+# committed to this repo:
+#   - WIT (Wiimms ISO Tools), the packer -- fetched below from wit.wiimm.de.
+#   - A "composing template": a free, open-source apploader + placeholder
+#     boot.bin (NOT Nintendo's copyrighted ones) that WIT itself publishes so
+#     homebrew discs can be legally composed from scratch. scripts/build_iso.sh
+#     downloads and caches this automatically as part of `make iso` -- see the
+#     comments in that script for the background and the source links.
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Official devkitPro image: devkitPPC, libogc and the Wii portlibs are
+    # already installed and on PATH, with DEVKITPRO/DEVKITPPC already set.
+    # https://hub.docker.com/r/devkitpro/devkitppc
+    container:
+      image: devkitpro/devkitppc:latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Sync Wii dev packages (best effort -- image already ships them)
+        # pkg.devkitpro.org intermittently 403s cloud/CI traffic -- this is a
+        # known, ongoing issue on devkitPro's own end (see devkitPro/pacman
+        # issues #62/#63), not something wrong with this workflow. It's a
+        # *sync* failure, not a missing-toolchain failure: the
+        # devkitpro/devkitppc image this job runs in already ships
+        # devkitPPC, libogc and these portlibs baked in. So this step is
+        # allowed to fail without taking the whole job (and the .dol build
+        # below) down with it.
+        continue-on-error: true
+        run: |
+          dkp-pacman -Sy --noconfirm \
+            && dkp-pacman -S --needed --noconfirm wii-dev ppc-libpng ppc-freetype ppc-libjpeg-turbo ppc-bzip2 ppc-brotli \
+            || echo "::warning::dkp-pacman sync failed (likely pkg.devkitpro.org rejecting this runner) -- continuing with whatever the devkitppc image already ships"
+
+      - name: Verify the toolchain is actually present
+        # Checked by direct path, not `command -v`: this plain shell step
+        # doesn't have devkitPPC/bin on PATH the way the Makefile does (it
+        # gets added by `include $(DEVKITPPC)/wii_rules`, which only runs
+        # inside `make`), so a PATH-based check here would false-positive
+        # even when the compiler is right there and `make` would work fine.
+        run: |
+          test -x "$DEVKITPPC/bin/powerpc-eabi-g++" || { echo "::error::powerpc-eabi-g++ not found at \$DEVKITPPC/bin -- devkitPPC missing from the image and the pacman sync above failed, cannot build"; exit 1; }
+          test -d "$DEVKITPRO/libogc" || { echo "::error::libogc not found at \$DEVKITPRO/libogc -- wii-dev missing from the image and the pacman sync above failed, cannot build"; exit 1; }
+          echo "Toolchain present: $("$DEVKITPPC/bin/powerpc-eabi-g++" --version | head -n1)"
+
+      - name: Clone and build GRRLIB
+        run: |
+          git clone --depth 1 --branch v4.6.1 https://github.com/GRRLIB/GRRLIB.git /tmp/grrlib-src
+          cd /tmp/grrlib-src/GRRLIB
+          make clean all install
+
+      - name: Build .dol (homebrew) -- required
+        run: make
+
+      - name: Upload homebrew artifact
+        # Intentionally uploaded before the ISO/WIT steps below: even if
+        # something downstream ever regresses, the already-built, working
+        # homebrew folder is uploaded and safe.
+        # path is the raw output/homebrew/ folder (boot.dol + meta.xml +
+        # icon.png + assets/), NOT output/pvz_wii.zip -- see the double-zip
+        # note at the top of this file. actions/upload-artifact zips this
+        # folder's contents itself, so extracting the downloaded
+        # pvz_wii-homebrew.zip drops boot.dol/meta.xml/assets straight
+        # into the current folder in one unzip.
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvz_wii-homebrew
+          path: output/homebrew
+          if-no-files-found: error
+
+      - name: Fetch Wiimms ISO Tools (WIT) -- required
+        env:
+          # https://wit.wiimm.de/download.html -- bump this if a newer
+          # release shows up there.
+          WIT_VERSION: v3.05a-r8638
+        run: |
+          set -eu
+          mkdir -p tools/wit /tmp/wit-extract
+          curl -fsSL -o /tmp/wit.tar.gz "https://wit.wiimm.de/download/wit-${WIT_VERSION}-x86_64.tar.gz"
+          tar -xzf /tmp/wit.tar.gz -C /tmp/wit-extract
+          WIT_BIN="$(find /tmp/wit-extract -type f -name wit -perm -u+x | head -n1)"
+          if [ -z "$WIT_BIN" ]; then
+            echo "::error::wit binary not found inside the downloaded archive"
+            find /tmp/wit-extract
+            exit 1
+          fi
+          cp "$WIT_BIN" tools/wit/wit
+          chmod +x tools/wit/wit
+          tools/wit/wit --version || true
+
+      - name: Build ISO -- required
+        run: make iso
+
+      - name: Build WBFS -- required
+        run: make wbfs
+
+      - name: Upload ISO artifact
+        # path is the raw output/disc/pvz_wii.iso file, NOT
+        # output/iso/pvz_wii.zip -- see the double-zip note at the top of
+        # this file. One unzip of the downloaded pvz_wii-iso.zip now gives
+        # pvz_wii.iso directly.
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvz_wii-iso
+          path: output/disc/pvz_wii.iso
+          if-no-files-found: error
+
+      - name: Upload WBFS artifact
+        # path is the raw output/disc/pvz_wii.wbfs file, NOT
+        # output/wbfs/pvz_wii.zip -- see the double-zip note at the top of
+        # this file. One unzip of the downloaded pvz_wii-wbfs.zip now gives
+        # pvz_wii.wbfs directly.
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvz_wii-wbfs
+          path: output/disc/pvz_wii.wbfs
+          if-no-files-found: error

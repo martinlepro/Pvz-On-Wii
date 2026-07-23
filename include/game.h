@@ -1,0 +1,142 @@
+/**
+ * game.h - Lawn grid, planting mechanics, falling sun, and the plant tile-cursor.
+ */
+#ifndef PVZ_GAME_H
+#define PVZ_GAME_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "constants.h"
+#include "input.h"
+#include "types.h"
+#include "zombie.h"
+#include "level.h"
+#include "plant.h"
+#include "particle.h"
+
+typedef struct GameContext {
+    GridCell  grid[GRID_ROWS][GRID_COLS];
+    GameState state;
+
+    s8        selectedSlot;    /* Seed-bar slot chosen (persists between grabs) */
+    PlantType heldPlant;       /* Plant currently held (drawn semi-transparent) */
+    bool      isHoldingSeed;
+
+    s8        plantCol;        /* Tile-cursor column; may overshoot past the lawn edges */
+    s8        plantRow;        /* Tile-cursor row; may overshoot past the lawn edges */
+
+    SunDrop   suns[MAX_SUN_DROPS];
+    u32       sunSpawnTimer;
+
+    u16       sun;             /* Player currency */
+    u32       frameCount;
+
+    /* Adventure Mode: zombies, their projectile counterattacks, and the
+     * current level/wave progression (see level.h / zombie.h). */
+    Zombie      zombies[MAX_ZOMBIES];
+    Projectile  projectiles[MAX_PROJECTILES];
+
+    u8        currentLevelIndex;     /* 0..TOTAL_LEVELS-1                        */
+    LevelWave waves[MAX_WAVES_PER_LEVEL];
+    u8        waveCount;
+    u8        currentWave;
+    u32       levelIntermissionTimer; /* counts down on GAME_STATE_LEVEL_WON      */
+
+    /* "A huge wave of zombies is approaching!" banner (Adventure Mode).
+     * hugeWavePending stays true from the moment the last wave of the level
+     * is triggered until its zombies actually start spawning; it gates
+     * Level_Update's spawning so nothing appears until the countdown ends.
+     * showHugeWaveMessage/hugeWaveMessageTimer control the red text itself
+     * (on screen for HUGE_WAVE_MESSAGE_FRAMES); hugeWaveDelayTimer is the
+     * silent beat afterwards (HUGE_WAVE_POST_DELAY_FRAMES). */
+    bool      hugeWavePending;
+    bool      showHugeWaveMessage;
+    u32       hugeWaveMessageTimer;
+    u32       hugeWaveDelayTimer;
+
+    /* Plant selection screen state */
+    PlantType unlockedPlants[PLANT_TYPE_COUNT];   /* plants available for this level */
+    u8        unlockedCount;
+    PlantType selectedPlants[MAX_SELECTED_PLANTS]; /* plants chosen before the level  */
+    u8        selectedCount;
+    s8        selectionCursor;           /* which plant the cursor is on in selection */
+
+    /* World configuration for the current level */
+    u8        rowCount;       /* active rows (5 for day/night/roof, 6 for pool/fog) */
+    u32       worldFlags;     /* bitmask of WorldFlags from types.h */
+
+    /* Survival mode state */
+    u16       survivalFlags;       /* flags completed */
+    u8        wavesSinceReselect;  /* waves since last reselection */
+    u8        survivalWaveSet;     /* difficulty tier, increments each cycle */
+    bool      isSurvivalReselect;  /* true during reselection phase */
+
+    PlantType newRewardPlant;    /* plant type just awarded (shown on victory), PLANT_NONE = none */
+
+    /* Particle effects */
+    Particle particles[MAX_PARTICLES];
+
+    /* Cached layout metrics (computed at init) */
+    s16 lawnX;
+    s16 lawnY;
+    s16 cellW;
+    s16 cellH;
+} GameContext;
+
+void Game_Init(GameContext* game);
+void Game_Reset(GameContext* game);
+
+/**
+ * Process seed-bar hover selection, grab/hold, tile-cursor movement (buttons
+ * + Nunchuk), and release/place. Only call while the menu is closed --
+ * gameplay input is fully suppressed while it is open.
+ */
+void Game_HandleInput(GameContext* game, const InputState* input);
+
+/**
+ * Advance passive simulation: sunflower income and falling suns (spawn,
+ * fall, expire, and collection via the IR cursor). Only call while the menu
+ * is closed -- the game is fully paused otherwise.
+ */
+void Game_Update(GameContext* game, const InputState* input);
+
+/**
+ * Drop whatever is currently held without planting it. No refund is needed
+ * since the sun cost is only ever deducted on a successful placement. Call
+ * this when the menu opens so a hold never lingers across a pause.
+ */
+void Game_CancelHold(GameContext* game);
+
+/** True if (col,row) is inside the 9x5 lawn grid (array bounds). */
+bool Game_IsValidCell(s8 col, s8 row);
+
+/** True if (col,row) is inside the world's active grid rows (game->rowCount). */
+bool Game_IsValidCellForWorld(const GameContext* game, s8 col, s8 row);
+
+/**
+ * Pixel top-left corner of a (possibly out-of-range) tile -- used to draw
+ * the tile-cursor / held-seed preview even when it has been pushed off the
+ * lawn ("far beyond the grass tiles"), so the player gets visual feedback
+ * that releasing there will cancel the placement.
+ */
+void Game_GridToScreen(const GameContext* game, s8 col, s8 row, s16* outX, s16* outY);
+
+/** Toggle a plant type in/out of the selection list. */
+void Game_ToggleSelection(GameContext* game, PlantType type);
+
+/** Confirm plant selection and start the level. */
+void Game_ConfirmSelection(GameContext* game);
+
+/** Sun cost for a plant type; 0xFFFF if invalid. */
+u16 Game_PlantCost(PlantType type);
+
+/** Human-readable plant name for debug HUD / menu labels. */
+const char* Game_PlantName(PlantType type);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* PVZ_GAME_H */
