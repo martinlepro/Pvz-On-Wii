@@ -976,7 +976,13 @@ static void DrawReticle(const InputState* input)
  *     green=mounted OK.
  *   Square 2 (missing textures): green=none missing, red=some missing.
  *   Square 3 (font state): green=a font is up (DrawHud can draw text),
- *     red=neither font is available (DrawHud is a no-op right now). */
+ *     red=neither font is available (DrawHud is a no-op right now).
+ *   Square 4 (TEMP -- which font path DrawLabel()/Render_DrawText() are
+ *     actually using): blue=TTF (GRRLIB_PrintfTTF), green=built-in bitmap
+ *     fallback (GRRLIB_Printf), red=neither. Added while chasing the "all
+ *     text invisible, even with a font available" report -- square 3 alone
+ *     can't tell TTF and bitmap apart, and they go through completely
+ *     different GRRLIB code paths. Delete once that's answered. */
 static void DrawDiscFstIndicator(void)
 {
     const f32 x = 8.0f, y = 8.0f, w = 12.0f, h = 12.0f, gap = 4.0f;
@@ -1007,6 +1013,9 @@ static void DrawDiscFstIndicator(void)
 
     u32 fontColor = (Render_GetFont() || Render_GetBitmapFont()) ? 0x00FF00FF : 0xFF0000FF;
     GRRLIB_Rectangle(x + (w + gap) * 2.0f, y, w, h, fontColor, true);
+
+    u32 fontPathColor = Render_GetFont() ? 0x3399FFFF : (Render_GetBitmapFont() ? 0x00FF00FF : 0xFF0000FF);
+    GRRLIB_Rectangle(x + (w + gap) * 3.0f, y, w, h, fontPathColor, true);
 }
 
 
