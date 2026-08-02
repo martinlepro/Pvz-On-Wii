@@ -1,0 +1,211 @@
+name: Build Wii
+
+# Builds three independent artifacts:
+#   - "pvz_wii-homebrew" -- boot.dol + meta.xml + assets,
+#     for the Homebrew Channel.
+#   - "pvz_wii-iso"      -- pvz_wii.iso, for Dolphin / burning.
+#   - "pvz_wii-wbfs"     -- pvz_wii.wbfs, for USB Loaders.
+# Each is built independently so a single failing format never blocks the
+# others from shipping. Push to GitHub (or click "Run workflow" on the
+# Actions tab), wait for the green check, then open the run and download
+# from its Artifacts section at the bottom of the page.
+#
+# Each upload-artifact step below points straight at the raw output (a
+# folder for homebrew, a single .iso/.wbfs file for the other two)
+# instead of at a zip we build ourselves. actions/upload-artifact always
+# wraps whatever "path" points to in its own zip for the download button
+# -- so pointing it at a zip we'd already made (as this used to do) meant
+# downloading gave you a zip containing another zip, needing two unzips
+# to reach the real content. Pointing at the raw file/folder leaves
+# GitHub's own zip as the only layer: one download, one unzip, done.
+#
+# devkitPPC/libogc/the Wii portlibs come from devkitPro's own official Docker
+# image (they're only distributed via devkitPro's pacman server, so they
+# can't be vendored in this repo). GRRLIB is cloned fresh from its own repo
+# and built every run (same "fetch at build time, don't commit it" approach
+# as WIT below) -- GitHub's runners have normal internet access, so there's
+# no benefit to vendoring a ~16MB source tree in git just to avoid a
+# `git clone` step, and doing so is exactly what broke this workflow once
+# already (the vendored copy silently went missing from a commit and the
+# build failed with "can't cd to vendor/grrlib-src/GRRLIB").
+#
+# The disc image needs two more things neither of which are (or should be)
+# committed to this repo:
+#   - WIT (Wiimms ISO Tools), the packer -- fetched below from wit.wiimm.de.
+#   - A "composing template": a free, open-source apploader + placeholder
+#     boot.bin (NOT Nintendo's copyrighted ones) that WIT itself publishes so
+#     homebrew discs can be legally composed from scratch. scripts/build_iso.sh
+#     downloads and caches this automatically as part of `make iso` -- see the
+#     comments in that script for the background and the source links.
+#
+# Docker Hub reliability: this job used to declare the devkitPro image via
+# a job-level `container:` key, which makes the runner pull the image
+# itself before any of our own steps run -- and that built-in pull only
+# gets ~3 quick retries over well under a minute. Docker Hub occasionally
+# has slow/unreachable spells from GitHub's runners ("context deadline
+# exceeded", "net/http: request canceled while waiting for connection"),
+# long enough that those 3 retries aren't enough even though the exact
+# same pull succeeds a minute or two later -- and there is no way to
+# extend that built-in retry from the workflow file. So instead: pull the
+# image ourselves first, in a step we fully control (see "Pull devkitPro
+# image" below -- up to 8 attempts with growing backoff), then run every
+# toolchain-dependent command via `docker run` against that already-pulled
+# image. If a run lands here and this wasn't it, the simplest fix is just
+# re-running the job -- this class of failure is a transient
+# registry/network blip, not a problem with the repo or this workflow.
+#
+# Two separate `docker run` steps for the .dol build, not a job-level
+# container, because installing packages (dkp-pacman) or building GRRLIB
+# in one `docker run` doesn't persist into a different one -- each
+# `docker run` starts a fresh container from the image, unlike steps that
+# used to share one long-lived job-level container. So the pacman sync +
+# GRRLIB clone/build/install + `make` all happen together inside a single
+# `docker run`. The later ISO/WBFS steps don't need any of that state --
+# they only package the .dol that's already sitting in the checked-out
+# repo (mounted in from the host, so it persists across separate
+# containers) using WIT, which isn't a devkitPPC tool at all -- but they
+# still go through `docker run` rather than running directly on the
+# runner, because this project's Makefile unconditionally resolves and
+# requires a devkitPPC install just to be parsed (see the Makefile's own
+# comments on this), even for a packaging-only target. A plain, un-synced
+# `docker run` of the same image is enough for that, since all it actually
+# needs is the image's own baked-in DEVKITPRO/DEVKITPPC environment
+# variables.
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  DEVKITPPC_IMAGE: devkitpro/devkitppc:latest
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Pull devkitPro image (patient retry)
+        # Our own retry loop, much more patient than the runner's built-in
+        # one for a job-level `container:` pull (see the file-level
+        # comment above) -- up to 8 attempts with growing backoff, close
+        # to 9 minutes total worst case, before actually failing the job.
+        run: |
+          set -eu
+          for i in 1 2 3 4 5 6 7 8; do
+            if docker pull "$DEVKITPPC_IMAGE"; then
+              exit 0
+            fi
+            wait=$((i * 15))
+            echo "::warning::docker pull failed (attempt $i/8) -- retrying in ${wait}s"
+            sleep "$wait"
+          done
+          echo "::error::docker pull $DEVKITPPC_IMAGE failed after 8 attempts -- this is almost always a transient Docker Hub/network blip, re-running the job usually fixes it"
+          exit 1
+
+      # pkg.devkitpro.org intermittently 403s cloud/CI traffic -- a known,
+      # ongoing issue on devkitPro's own end (see devkitPro/pacman issues
+      # #62/#63), not something wrong with this workflow. The sync below is
+      # a *best-effort* step, not a required one: the devkitppc image
+      # already ships devkitPPC, libogc and these portlibs baked in, so a
+      # sync failure alone must not fail the whole build -- hence the
+      # `|| echo "::warning::..."` rather than letting `set -e` kill the
+      # script. Toolchain presence is then verified for real right after.
+      #
+      # Bundled into the same `docker run` as the GRRLIB build and `make`
+      # (see the file-level comment above for why that has to be one
+      # container instance, not three separate ones).
+      - name: Sync packages, build GRRLIB, build .dol (homebrew) -- required
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" -w /src "$DEVKITPPC_IMAGE" bash -c "
+            set -e
+            dkp-pacman -Sy --noconfirm \
+              && dkp-pacman -S --needed --noconfirm wii-dev ppc-libpng ppc-freetype ppc-libjpeg-turbo ppc-bzip2 ppc-brotli \
+              || echo '::warning::dkp-pacman sync failed (likely pkg.devkitpro.org rejecting this runner) -- continuing with whatever the devkitppc image already ships'
+
+            test -x \"\$DEVKITPPC/bin/powerpc-eabi-g++\" || { echo '::error::powerpc-eabi-g++ not found at \$DEVKITPPC/bin -- devkitPPC missing from the image and the pacman sync above failed, cannot build'; exit 1; }
+            test -d \"\$DEVKITPRO/libogc\" || { echo '::error::libogc not found at \$DEVKITPRO/libogc -- wii-dev missing from the image and the pacman sync above failed, cannot build'; exit 1; }
+            echo \"Toolchain present: \$(\"\$DEVKITPPC/bin/powerpc-eabi-g++\" --version | head -n1)\"
+
+            git clone --depth 1 --branch v4.6.1 https://github.com/GRRLIB/GRRLIB.git /tmp/grrlib-src
+            cd /tmp/grrlib-src/GRRLIB
+            make clean all install
+            cd /src
+
+            make
+          "
+
+      - name: Upload homebrew artifact
+        # Intentionally uploaded before the ISO/WIT steps below: even if
+        # something downstream ever regresses, the already-built, working
+        # homebrew folder is uploaded and safe.
+        # path is the raw output/homebrew/ folder (boot.dol + meta.xml +
+        # icon.png + assets/), NOT output/pvz_wii.zip -- see the double-zip
+        # note at the top of this file. actions/upload-artifact zips this
+        # folder's contents itself, so extracting the downloaded
+        # pvz_wii-homebrew.zip drops boot.dol/meta.xml/assets straight
+        # into the current folder in one unzip.
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvz_wii-homebrew
+          path: output/homebrew
+          if-no-files-found: error
+
+      - name: Fetch Wiimms ISO Tools (WIT) -- required
+        # Plain curl/tar directly on the runner -- WIT is a standalone
+        # x86_64 Linux tool with nothing to do with devkitPPC, so it
+        # doesn't need to go through docker at all.
+        env:
+          # https://wit.wiimm.de/download.html -- bump this if a newer
+          # release shows up there.
+          WIT_VERSION: v3.05a-r8638
+        run: |
+          set -eu
+          mkdir -p tools/wit /tmp/wit-extract
+          curl -fsSL -o /tmp/wit.tar.gz "https://wit.wiimm.de/download/wit-${WIT_VERSION}-x86_64.tar.gz"
+          tar -xzf /tmp/wit.tar.gz -C /tmp/wit-extract
+          WIT_BIN="$(find /tmp/wit-extract -type f -name wit -perm -u+x | head -n1)"
+          if [ -z "$WIT_BIN" ]; then
+            echo "::error::wit binary not found inside the downloaded archive"
+            find /tmp/wit-extract
+            exit 1
+          fi
+          cp "$WIT_BIN" tools/wit/wit
+          chmod +x tools/wit/wit
+          tools/wit/wit --version || true
+
+      - name: Build ISO -- required
+        # Only packages the .dol already built above, via WIT -- see the
+        # file-level comment on why this still runs through a plain
+        # (un-synced) `docker run` of the same image rather than directly
+        # on the runner.
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" -w /src "$DEVKITPPC_IMAGE" make iso
+
+      - name: Build WBFS -- required
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" -w /src "$DEVKITPPC_IMAGE" make wbfs
+
+      - name: Upload ISO artifact
+        # path is the raw output/disc/pvz_wii.iso file, NOT
+        # output/iso/pvz_wii.zip -- see the double-zip note at the top of
+        # this file. One unzip of the downloaded pvz_wii-iso.zip now gives
+        # pvz_wii.iso directly.
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvz_wii-iso
+          path: output/disc/pvz_wii.iso
+          if-no-files-found: error
+
+      - name: Upload WBFS artifact
+        # path is the raw output/disc/pvz_wii.wbfs file, NOT
+        # output/wbfs/pvz_wii.zip -- see the double-zip note at the top of
+        # this file. One unzip of the downloaded pvz_wii-wbfs.zip now gives
+        # pvz_wii.wbfs directly.
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvz_wii-wbfs
+          path: output/disc/pvz_wii.wbfs
+          if-no-files-found: error
