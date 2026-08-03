@@ -57,6 +57,12 @@ struct GRRLIB_texImg* Render_LoadTexture(const char* relPath);
  *  rectangles with no indication anything is wrong. */
 unsigned Render_GetMissingTextureCount(void);
 
+/** Returns the relative path of the Nth missing texture (0-indexed, up to
+ *  the last 4 remembered), or NULL if there is no such entry. Lets the
+ *  on-screen debug HUD name the exact file(s) that failed to load instead
+ *  of just showing a count -- see DrawHud() in render.cpp. */
+const char* Render_GetMissingTexturePath(unsigned index);
+
 /** Draw text using either TTF or built-in bitmap font. */
 void Render_DrawText(s16 x, s16 y, u32 color, unsigned int size, const char* text);
 

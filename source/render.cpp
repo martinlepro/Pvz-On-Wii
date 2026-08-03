@@ -85,6 +85,13 @@ static RenderAssets     s_assets;
 static GRRLIB_ttfFont*  s_font = NULL;
 static GRRLIB_texImg*   s_bitmapFont = NULL;
 static unsigned         s_missingTextureCount = 0;
+/* [DEBUG] Remembers the relative path of the last few Render_LoadTexture()
+ * failures so the on-screen HUD can name them (see Render_GetMissingTexturePath
+ * / DrawHud) instead of only showing a count. Delete alongside the counter
+ * once art loading is confirmed working on real hardware/SD card. */
+#define MISSING_TEXTURE_LOG_CAP 4
+static char             s_missingTexturePaths[MISSING_TEXTURE_LOG_CAP][48];
+static unsigned         s_missingTexturePathCount = 0;
 /* Raw bytes of whichever font.ttf was loaded, kept alive for as long as
  * s_font is. See the LoadTTFKeepingBuffer() comment below for why this
  * has to exist at all. */
@@ -92,6 +99,12 @@ static u8*               s_fontFileData = NULL;
 unsigned Render_GetMissingTextureCount(void)
 {
     return s_missingTextureCount;
+}
+const char* Render_GetMissingTexturePath(unsigned index)
+{
+    if (index >= s_missingTexturePathCount || index >= MISSING_TEXTURE_LOG_CAP)
+        return NULL;
+    return s_missingTexturePaths[index];
 }
 GRRLIB_texImg* Render_LoadTexture(const char* relPath)
 {
@@ -115,6 +128,12 @@ GRRLIB_texImg* Render_LoadTexture(const char* relPath)
         if (tex) GRRLIB_FreeTexture(tex);
     }
     s_missingTextureCount++;
+    if (s_missingTexturePathCount < MISSING_TEXTURE_LOG_CAP)
+    {
+        snprintf(s_missingTexturePaths[s_missingTexturePathCount],
+                 sizeof(s_missingTexturePaths[s_missingTexturePathCount]), "%s", relPath);
+        s_missingTexturePathCount++;
+    }
     return NULL;
 }
 /* NOTE: this array MUST have exactly PLANT_TYPE_COUNT entries, one per
@@ -448,6 +467,18 @@ static void DrawSimpleZombie(const GameContext* game, const Zombie* z)
         DrawRect((s16)(footX - w / 2), (s16)(footY - targetH), (s16)w, (s16)targetH, 0x336633FF);
     }
 }
+/* [DEBUG] Snapshot of the first rigged zombie drawn each frame -- which
+ * parts were non-null and where they actually got told to draw -- so the
+ * HUD can show whether "only legs visible" is a null-texture problem
+ * (parts show N) or a positioning problem (parts show Y but the numbers
+ * look wrong). Delete once the rig is confirmed fully visible. */
+typedef struct {
+    bool captured;
+    bool hasLegA, hasLegB, hasArm, hasTorso, hasHead;
+    f32 footX, hipY, shoulderY, headY, legScale;
+} RigDebugSnapshot;
+static RigDebugSnapshot s_rigDebug;
+static void Render_ResetRigDebugCapture(void) { s_rigDebug.captured = false; }
 /** All zombie types: composited from per-type parts/ (head, torso, arm,
  *  leg_a, leg_b) and animated frame-by-frame with procedural walk-cycle
  *  limb swinging. Each zombie type now provides its own parts, so the
@@ -489,6 +520,20 @@ static void DrawRiggedZombie(const GameContext* game, const Zombie* z, const Zom
     if (torso) GRRLIB_DrawImg(footX, shoulderY, torso, 0.0f, legScale, legScale, color);
     f32 headY = shoulderY - torsoH * 0.62f;
     if (head) GRRLIB_DrawImg(footX, headY, head, 0.0f, legScale, legScale, color);
+    if (!s_rigDebug.captured)
+    {
+        s_rigDebug.captured  = true;
+        s_rigDebug.hasLegA   = (legA != NULL);
+        s_rigDebug.hasLegB   = (legB != NULL);
+        s_rigDebug.hasArm    = (arm != NULL);
+        s_rigDebug.hasTorso  = (torso != NULL);
+        s_rigDebug.hasHead   = (head != NULL);
+        s_rigDebug.footX     = footX;
+        s_rigDebug.hipY      = hipY;
+        s_rigDebug.shoulderY = shoulderY;
+        s_rigDebug.headY     = headY;
+        s_rigDebug.legScale  = legScale;
+    }
 }
 static void DrawZombieHealth(const GameContext* game, const Zombie* z)
 {
@@ -500,6 +545,7 @@ static void DrawZombieHealth(const GameContext* game, const Zombie* z)
 }
 static void DrawZombies(const GameContext* game)
 {
+    Render_ResetRigDebugCapture();
     bool invisible = !Minigame_CanRenderZombie(game);
     for (int i = 0; i < MAX_ZOMBIES; ++i)
     {
@@ -950,8 +996,40 @@ static void DrawHud(const GameContext* game, const InputState* input)
     unsigned missing = Render_GetMissingTextureCount();
     if (missing > 0)
     {
-        snprintf(buf, sizeof(buf), "[DBG] %u texture(s) not found -- check assets/ folder", missing);
+        snprintf(buf, sizeof(buf), "[DBG] %u texture(s) not found:", missing);
         DrawLabel(8, y - 36, 0xFF6666FF, 12, buf);
+        for (unsigned i = 0; i < 4; ++i)
+        {
+            const char* p = Render_GetMissingTexturePath(i);
+            if (!p) break;
+            snprintf(buf, sizeof(buf), "  - %s", p);
+            DrawLabel(8, y - 36 - (s16)((i + 1) * 14), 0xFF6666FF, 12, buf);
+        }
+    }
+    /* [DEBUG] Seed-bar/selection state -- if selectedCount is 0 while
+     * PLAYING, the seed bar loop in DrawSeedBar() has nothing to iterate
+     * over, so no seed packets, no plant placement, and (as a knock-on
+     * effect) no projectiles either. Delete once confirmed correct. */
+    snprintf(buf, sizeof(buf), "[DBG] selectedCount=%u unlockedCount=%u state=%d",
+             (unsigned)game->selectedCount, (unsigned)game->unlockedCount, (int)game->state);
+    DrawLabel(8, y - 112, 0x66CCFFFF, 12, buf);
+    /* [DEBUG] First rigged zombie this frame: which of the 5 parts loaded
+     * (Y/N) and the screen coordinates each one was told to draw at. If a
+     * part shows N, it's a loading/indexing problem (see the missing-
+     * texture list above). If all show Y but torso/head/arm still don't
+     * appear on screen, the numbers below vs. the visible legs position
+     * tell us how far off the positioning math is. Delete once resolved. */
+    if (s_rigDebug.captured)
+    {
+        snprintf(buf, sizeof(buf), "[DBG] rig legA=%c legB=%c arm=%c torso=%c head=%c scale=%.2f",
+                 s_rigDebug.hasLegA ? 'Y' : 'N', s_rigDebug.hasLegB ? 'Y' : 'N',
+                 s_rigDebug.hasArm  ? 'Y' : 'N', s_rigDebug.hasTorso ? 'Y' : 'N',
+                 s_rigDebug.hasHead ? 'Y' : 'N', (double)s_rigDebug.legScale);
+        DrawLabel(8, y - 130, 0xFFAA33FF, 12, buf);
+        snprintf(buf, sizeof(buf), "[DBG] footX=%.0f hipY=%.0f shoulderY=%.0f headY=%.0f",
+                 (double)s_rigDebug.footX, (double)s_rigDebug.hipY,
+                 (double)s_rigDebug.shoulderY, (double)s_rigDebug.headY);
+        DrawLabel(8, y - 148, 0xFFAA33FF, 12, buf);
     }
     /* [DEBUG] Disc-native asset loading status (source/discfst.cpp) --
      * only meaningful when launched from a disc/USB-loader build with no
@@ -1109,7 +1187,17 @@ bool Render_Init(void)
         snprintf(path, sizeof(path), "assets/zombies/%s/parts/leg_b.png", def->assetSlug);
         s_assets.rigLegB[i] = Render_LoadTexture(path);
         /* Set pivots: head at center-X 3/4 down, torso at center-X top,
-         * limbs at center-X near top (shoulder/hip joint). */
+         * limbs at center-X near top (shoulder/hip joint).
+         * [REVERTED] I briefly changed these four to percentage-of-height
+         * (h*3/100) instead of fixed pixel offsets, reasoning that a fixed
+         * pixel count is a different *fraction* of the pivot on a resized
+         * image. After that change, legs went from "visible" to "huge and
+         * upside-down" -- which means either that reasoning was wrong, or
+         * GRRLIB's own handle+scale+rotate formula reacts to this value in
+         * a way I can't verify without running the actual build. Rather
+         * than guess again, this goes back to the values confirmed to at
+         * least render the legs correctly, so we're debugging from a known
+         * state instead of stacking unverified changes. */
         if (s_assets.rigHead[i])  GRRLIB_SetHandle(s_assets.rigHead[i],  s_assets.rigHead[i]->w / 2, s_assets.rigHead[i]->h * 3 / 4);
         if (s_assets.rigTorso[i]) GRRLIB_SetHandle(s_assets.rigTorso[i], s_assets.rigTorso[i]->w / 2, 4);
         if (s_assets.rigArm[i])   GRRLIB_SetHandle(s_assets.rigArm[i],   s_assets.rigArm[i]->w / 2, 8);
