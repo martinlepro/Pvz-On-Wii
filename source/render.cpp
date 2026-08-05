@@ -933,7 +933,7 @@ static void DrawReticle(const InputState* input)
  *     text invisible, even with a font available" report -- square 3 alone
  *     can't tell TTF and bitmap apart, and they go through completely
  *     different GRRLIB code paths. Delete once that's answered. */
-static void DrawDiscFstIndicator(void)
+static void DrawDiscFstIndicator(const GameContext* game)
 {
     const f32 x = 8.0f, y = 8.0f, w = 12.0f, h = 12.0f, gap = 4.0f;
     u32 discColor;
@@ -961,6 +961,27 @@ static void DrawDiscFstIndicator(void)
     GRRLIB_Rectangle(x + (w + gap) * 2.0f, y, w, h, fontColor, true);
     u32 fontPathColor = Render_GetFont() ? 0x3399FFFF : (Render_GetBitmapFont() ? 0x00FF00FF : 0xFF0000FF);
     GRRLIB_Rectangle(x + (w + gap) * 3.0f, y, w, h, fontPathColor, true);
+    /* [DEBUG] Squares 5 and 6 -- added because the small debug TEXT lines
+     * turned out to be unreadable at TV/capture resolution, while these
+     * little color blocks read fine at a glance. Square 5: is at least one
+     * plant selected right now (red = selectedCount is 0 -> seed bar is
+     * empty, nothing can be placed, no projectiles either -- this is the
+     * single most likely explanation for "no seedpack/plants/projectiles").
+     * Square 6: is the first rigged zombie's leg scale in a sane ballpark
+     * (roughly 0.1x-2.5x) or wildly off (too small/huge -> a scale-
+     * computation bug rather than a positioning one); grey if no rigged
+     * zombie has been drawn yet this session. Delete this whole function
+     * once the rendering issues above are confirmed fixed. */
+    u32 selColor = (game->selectedCount > 0) ? 0x00FF00FF : 0xFF0000FF;
+    GRRLIB_Rectangle(x + (w + gap) * 4.0f, y, w, h, selColor, true);
+    u32 legColor;
+    if (!s_rigDebug.captured)
+        legColor = 0x808080FF;
+    else if (s_rigDebug.legScale < 0.1f || s_rigDebug.legScale > 2.5f)
+        legColor = 0xFF0000FF;
+    else
+        legColor = 0x00FF00FF;
+    GRRLIB_Rectangle(x + (w + gap) * 5.0f, y, w, h, legColor, true);
 }
 static void DrawHud(const GameContext* game, const InputState* input)
 {
@@ -1499,7 +1520,7 @@ void Render_Frame(const GameContext* game, const InputState* input)
     DrawHeldSeed(game, input);
     DrawSeedBar(game, input);
     DrawHud(game, input);
-    DrawDiscFstIndicator(); /* [DEBUG] see comment above its definition */
+    DrawDiscFstIndicator(game); /* [DEBUG] see comment above its definition */
     DrawLevelBanner(game);
     DrawLevelProgressBar(game);
     DrawSpawnGauge(game);
