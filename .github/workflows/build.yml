@@ -157,6 +157,14 @@ jobs:
         # Plain curl/tar directly on the runner -- WIT is a standalone
         # x86_64 Linux tool with nothing to do with devkitPPC, so it
         # doesn't need to go through docker at all.
+        #
+        # Retries with backoff for the same reason the devkitPro image pull
+        # above does: wit.wiimm.de is a small, single-maintainer server (not
+        # a CDN-backed one like Docker Hub or GitHub), so it's at least as
+        # likely to hit a transient blip -- and a plain single-shot curl
+        # here did fail exactly that way once ("curl: (35) Recv failure:
+        # Connection reset by peer"), taking the whole job down with it even
+        # though a retry a few seconds later would very likely have worked.
         env:
           # https://wit.wiimm.de/download.html -- bump this if a newer
           # release shows up there.
@@ -164,7 +172,18 @@ jobs:
         run: |
           set -eu
           mkdir -p tools/wit /tmp/wit-extract
-          curl -fsSL -o /tmp/wit.tar.gz "https://wit.wiimm.de/download/wit-${WIT_VERSION}-x86_64.tar.gz"
+          for i in 1 2 3 4 5; do
+            if curl -fsSL -o /tmp/wit.tar.gz "https://wit.wiimm.de/download/wit-${WIT_VERSION}-x86_64.tar.gz"; then
+              break
+            fi
+            if [ "$i" -eq 5 ]; then
+              echo "::error::download of WIT failed after 5 attempts -- this is almost always a transient network blip on wit.wiimm.de's end (e.g. a connection reset), re-running the job usually fixes it"
+              exit 1
+            fi
+            wait=$((i * 10))
+            echo "::warning::WIT download failed (attempt $i/5) -- retrying in ${wait}s"
+            sleep "$wait"
+          done
           tar -xzf /tmp/wit.tar.gz -C /tmp/wit-extract
           WIT_BIN="$(find /tmp/wit-extract -type f -name wit -perm -u+x | head -n1)"
           if [ -z "$WIT_BIN" ]; then
