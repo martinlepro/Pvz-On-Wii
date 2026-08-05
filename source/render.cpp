@@ -479,6 +479,39 @@ typedef struct {
 } RigDebugSnapshot;
 static RigDebugSnapshot s_rigDebug;
 static void Render_ResetRigDebugCapture(void) { s_rigDebug.captured = false; }
+/* Draws a rig part scaled by (scaleX,scaleY) and rotated by angleDeg
+ * (GRRLIB_DrawImg's own convention), positioning it so that its
+ * *un-rotated* horizontal-center point at a height fraction `anchorFrac`
+ * down from the top (0 = top edge, 0.75 = 3/4 down, ...) lands at
+ * (targetX, targetY); rotation then happens around the part's own center.
+ *
+ * This exists instead of GRRLIB's built-in handle mechanism because that
+ * mechanism does NOT behave like "handle point maps to xpos/ypos": its
+ * actual formula shifts the result by an amount that depends on BOTH the
+ * handle offset and the current scale, so a handle tuned by eye at one
+ * scale silently mis-renders at another (confirmed: the rig stayed
+ * gigantic/misplaced across two different handle values, and even once
+ * legScale itself was confirmed sane -- pointing at the position formula,
+ * not the scale computation). Using handle (0,0) sidesteps that
+ * entirely: with handle (0,0), GRRLIB places the image's own center at
+ * (xpos + tex->w*0.5, ypos + tex->h*0.5) regardless of scale or rotation --
+ * a fixed, verifiable relationship -- so we solve for xpos/ypos ourselves
+ * from that instead of trusting GRRLIB's handle to do it.
+ *
+ * Trade-off: a part now visually rotates around its own center rather
+ * than around its top/anchor point (e.g. a leg's swing pivots from its
+ * middle, not the hip). Slightly less anatomically correct, but
+ * predictable and scale-independent -- worth it until confirmed working,
+ * at which point this can be refined to rotate around the anchor instead. */
+static void DrawRigPart(GRRLIB_texImg* tex, f32 targetX, f32 targetY, f32 anchorFrac,
+                         f32 scaleX, f32 scaleY, f32 angleDeg, u32 color)
+{
+    if (!tex) return;
+    f32 cx = targetX;
+    f32 cy = targetY + (0.5f - anchorFrac) * (f32)tex->h * scaleY;
+    GRRLIB_SetHandle(tex, 0, 0);
+    GRRLIB_DrawImg(cx - (f32)tex->w * 0.5f, cy - (f32)tex->h * 0.5f, tex, angleDeg, scaleX, scaleY, color);
+}
 /** All zombie types: composited from per-type parts/ (head, torso, arm,
  *  leg_a, leg_b) and animated frame-by-frame with procedural walk-cycle
  *  limb swinging. Each zombie type now provides its own parts, so the
@@ -508,18 +541,15 @@ static void DrawRiggedZombie(const GameContext* game, const Zombie* z, const Zom
                        ? (game->cellH * 0.85f) / (f32)legA->h : 1.0f;
     f32 legH   = legA ? legA->h * legScale : game->cellH * 0.8f;
     f32 hipY   = footY - legH * 0.92f - bodyBob;
-    if (legB) GRRLIB_DrawImg(footX - 6, hipY, legB, legBAngle, legScale, legScale, color);
-    if (legA) GRRLIB_DrawImg(footX + 6, hipY, legA, legAAngle, legScale, legScale, color);
+    DrawRigPart(legB, footX - 6, hipY, 0.0f, legScale, legScale, legBAngle, color);
+    DrawRigPart(legA, footX + 6, hipY, 0.0f, legScale, legScale, legAAngle, color);
     f32 torsoH = torso ? torso->h * legScale : game->cellH * 0.7f;
     f32 shoulderY = hipY - torsoH * 0.85f;
-    if (arm)
-    {
-        GRRLIB_DrawImg(footX - 10, shoulderY, arm,  armAngle, -legScale, legScale, color);
-        GRRLIB_DrawImg(footX + 10, shoulderY, arm, -armAngle,  legScale, legScale, color);
-    }
-    if (torso) GRRLIB_DrawImg(footX, shoulderY, torso, 0.0f, legScale, legScale, color);
+    DrawRigPart(arm, footX - 10, shoulderY, 0.0f, -legScale, legScale, armAngle, color);
+    DrawRigPart(arm, footX + 10, shoulderY, 0.0f,  legScale, legScale, -armAngle, color);
+    DrawRigPart(torso, footX, shoulderY, 0.0f, legScale, legScale, 0.0f, color);
     f32 headY = shoulderY - torsoH * 0.62f;
-    if (head) GRRLIB_DrawImg(footX, headY, head, 0.0f, legScale, legScale, color);
+    DrawRigPart(head, footX, headY, 0.75f, legScale, legScale, 0.0f, color);
     if (!s_rigDebug.captured)
     {
         s_rigDebug.captured  = true;
@@ -1207,23 +1237,13 @@ bool Render_Init(void)
         s_assets.rigLegA[i] = Render_LoadTexture(path);
         snprintf(path, sizeof(path), "assets/zombies/%s/parts/leg_b.png", def->assetSlug);
         s_assets.rigLegB[i] = Render_LoadTexture(path);
-        /* Set pivots: head at center-X 3/4 down, torso at center-X top,
-         * limbs at center-X near top (shoulder/hip joint).
-         * [REVERTED] I briefly changed these four to percentage-of-height
-         * (h*3/100) instead of fixed pixel offsets, reasoning that a fixed
-         * pixel count is a different *fraction* of the pivot on a resized
-         * image. After that change, legs went from "visible" to "huge and
-         * upside-down" -- which means either that reasoning was wrong, or
-         * GRRLIB's own handle+scale+rotate formula reacts to this value in
-         * a way I can't verify without running the actual build. Rather
-         * than guess again, this goes back to the values confirmed to at
-         * least render the legs correctly, so we're debugging from a known
-         * state instead of stacking unverified changes. */
-        if (s_assets.rigHead[i])  GRRLIB_SetHandle(s_assets.rigHead[i],  s_assets.rigHead[i]->w / 2, s_assets.rigHead[i]->h * 3 / 4);
-        if (s_assets.rigTorso[i]) GRRLIB_SetHandle(s_assets.rigTorso[i], s_assets.rigTorso[i]->w / 2, 4);
-        if (s_assets.rigArm[i])   GRRLIB_SetHandle(s_assets.rigArm[i],   s_assets.rigArm[i]->w / 2, 8);
-        if (s_assets.rigLegA[i])  GRRLIB_SetHandle(s_assets.rigLegA[i],  s_assets.rigLegA[i]->w / 2, 8);
-        if (s_assets.rigLegB[i])  GRRLIB_SetHandle(s_assets.rigLegB[i],  s_assets.rigLegB[i]->w / 2, 8);
+        /* No more per-part GRRLIB_SetHandle here: positioning is now done
+         * by DrawRigPart() in DrawRiggedZombie(), which always uses handle
+         * (0,0) and computes xpos/ypos itself -- see the big comment above
+         * that function for why. Kept trying to tune a non-zero handle by
+         * eye (twice) and both times the rig came out wrong at some scale;
+         * (0,0) is the one handle value with a verified, scale-independent
+         * position formula. */
     }
     /* Fallback single-texture cutout for types that don't have parts/ yet.
      * Pivoted at bottom-center so the procedural sway rotates around the feet. */
