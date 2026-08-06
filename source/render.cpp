@@ -476,6 +476,11 @@ typedef struct {
     bool captured;
     bool hasLegA, hasLegB, hasArm, hasTorso, hasHead;
     f32 footX, hipY, shoulderY, headY, legScale;
+    f32 footY, footDelta; /* footDelta = where the sole actually ends up
+                            * minus footY (the row's floor line); 0 = touches
+                            * exactly, positive = sole is below the floor
+                            * (sinks into the tile), negative = sole is
+                            * above it (floats). */
 } RigDebugSnapshot;
 static RigDebugSnapshot s_rigDebug;
 static void Render_ResetRigDebugCapture(void) { s_rigDebug.captured = false; }
@@ -540,7 +545,17 @@ static void DrawRiggedZombie(const GameContext* game, const Zombie* z, const Zom
     f32 legScale = (legA && legA->h > 0)
                        ? (game->cellH * 0.85f) / (f32)legA->h : 1.0f;
     f32 legH   = legA ? legA->h * legScale : game->cellH * 0.8f;
-    f32 hipY   = footY - legH * 0.92f - bodyBob;
+    /* hipY used to be "footY - legH*0.92": that 0.92 was presumably tuned
+     * by eye against the old GRRLIB-handle-based positioning, which we've
+     * since replaced (see DrawRigPart above) -- there's no reason it still
+     * matches under the new one. Using the exact relationship instead
+     * (bottom of a top-anchored, anchorFrac=0 part sits exactly legH below
+     * its target) makes the sole of the leg image touch the row's floor
+     * line precisely, *assuming* the art has no transparent padding below
+     * the visible foot. If feet still don't touch the tile after this,
+     * that assumption is the next thing to check -- see the footDelta
+     * debug line below, which measures the actual gap in pixels. */
+    f32 hipY   = footY - legH - bodyBob;
     DrawRigPart(legB, footX - 6, hipY, 0.0f, legScale, legScale, legBAngle, color);
     DrawRigPart(legA, footX + 6, hipY, 0.0f, legScale, legScale, legAAngle, color);
     f32 torsoH = torso ? torso->h * legScale : game->cellH * 0.7f;
@@ -563,6 +578,11 @@ static void DrawRiggedZombie(const GameContext* game, const Zombie* z, const Zom
         s_rigDebug.shoulderY = shoulderY;
         s_rigDebug.headY     = headY;
         s_rigDebug.legScale  = legScale;
+        s_rigDebug.footY     = footY;
+        /* Bottom edge of the (unrotated) leg image = hipY + legH, per
+         * DrawRigPart's anchorFrac=0 math. Comparing that to footY tells us
+         * exactly how many pixels off the calibration above still is. */
+        s_rigDebug.footDelta = (hipY + legH) - footY;
     }
 }
 static void DrawZombieHealth(const GameContext* game, const Zombie* z)
@@ -1012,6 +1032,18 @@ static void DrawDiscFstIndicator(const GameContext* game)
     else
         legColor = 0x00FF00FF;
     GRRLIB_Rectangle(x + (w + gap) * 5.0f, y, w, h, legColor, true);
+    /* Square 7: does the foot actually touch the row's floor line (within
+     * 3px)? Grey if no rigged zombie captured yet, green if close enough,
+     * red if it's off by more than 3px (see the footDelta text line in
+     * DrawHud for the exact pixel count and direction). */
+    u32 footColor;
+    if (!s_rigDebug.captured)
+        footColor = 0x808080FF;
+    else if (fabsf(s_rigDebug.footDelta) < 3.0f)
+        footColor = 0x00FF00FF;
+    else
+        footColor = 0xFF0000FF;
+    GRRLIB_Rectangle(x + (w + gap) * 6.0f, y, w, h, footColor, true);
 }
 static void DrawHud(const GameContext* game, const InputState* input)
 {
@@ -1081,6 +1113,16 @@ static void DrawHud(const GameContext* game, const InputState* input)
                  (double)s_rigDebug.footX, (double)s_rigDebug.hipY,
                  (double)s_rigDebug.shoulderY, (double)s_rigDebug.headY);
         DrawLabel(8, y - 148, 0xFFAA33FF, 12, buf);
+        /* [DEBUG] The one number that matters for "feet floating above/
+         * sinking into the tile": how many pixels off the sole is from the
+         * row's floor line. Bigger font than the rest on purpose -- the
+         * smaller debug text was reported unreadable at TV/capture
+         * resolution. Positive = sole below the floor line (sinks in),
+         * negative = above it (floats). */
+        snprintf(buf, sizeof(buf), "[DBG] footDelta=%+.0fpx (foot%stouches row)",
+                 (double)s_rigDebug.footDelta,
+                 (fabsf(s_rigDebug.footDelta) < 3.0f) ? " " : " does NOT ");
+        DrawLabel(8, y - 168, 0xFFFFFFFF, 18, buf);
     }
     /* [DEBUG] Disc-native asset loading status (source/discfst.cpp) --
      * only meaningful when launched from a disc/USB-loader build with no
