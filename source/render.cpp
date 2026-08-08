@@ -1087,22 +1087,27 @@ static void DrawHud(const GameContext* game, const InputState* input)
         PlantType firstType = game->selectedPlants[0];
         GRRLIB_texImg* icon = (firstType >= 0 && firstType < PLANT_TYPE_COUNT)
                                    ? s_assets.seedIcon[firstType] : NULL;
-        snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0]=%s %s",
-                 icon ? "Y" : "N",
-                 icon ? (icon->data ? "data=Y" : "data=N") : "");
-        if (icon)
-        {
-            char dims[32];
-            snprintf(dims, sizeof(dims), " %ux%u", (unsigned)icon->w, (unsigned)icon->h);
-            strncat(buf, dims, sizeof(buf) - strlen(buf) - 1);
-        }
-        DrawLabel(8, y - 186, 0x66CCFFFF, 12, buf);
+        if (!icon)
+            snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0] = NULL (not loaded)");
+        else if (!icon->data)
+            snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0] loaded, data=NULL");
+        else
+            snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0] OK, %u x %u px",
+                     (unsigned)icon->w, (unsigned)icon->h);
+        DrawLabel(8, y - 186, 0x66CCFFFF, 14, buf);
     }
-    /* [DEBUG] Combat: is there a shooter plant on the grid at all, and does
-     * it currently see a zombie in its own row? A shooter with no zombie
-     * in its row will correctly never fire -- that's not a bug, just
-     * nothing to shoot at yet. Delete once projectiles are confirmed. */
+    /* [DEBUG] Combat: is there a shooter plant on the grid at all, does it
+     * currently see a zombie in its own row, and how many projectiles are
+     * actually live in the pool right now? Split into short, separate
+     * lines on purpose -- a single long line got hard to read at TV/photo
+     * resolution. Delete once projectiles are confirmed on screen. */
     {
+        int activeProj = 0;
+        for (int i = 0; i < MAX_PROJECTILES; ++i)
+            if (game->projectiles[i].active) activeProj++;
+        snprintf(buf, sizeof(buf), "[DBG] activeProjectiles=%d", activeProj);
+        DrawLabel(8, y - 204, 0x66CCFFFF, 14, buf);
+
         bool foundShooter = false;
         s8 shooterRow = -1, shooterCol = -1;
         for (s8 row = 0; row < (s8)game->rowCount && !foundShooter; ++row)
@@ -1111,15 +1116,17 @@ static void DrawHud(const GameContext* game, const InputState* input)
                 { foundShooter = true; shooterRow = row; shooterCol = col; break; }
         if (!foundShooter)
         {
-            snprintf(buf, sizeof(buf), "[DBG] combat: no plant placed on the grid yet");
+            snprintf(buf, sizeof(buf), "[DBG] no plant on grid yet");
+            DrawLabel(8, y - 222, 0x66CCFFFF, 14, buf);
         }
         else
         {
             bool zombieAhead = Zombie_AnyActiveAheadInRow(game->zombies, (u8)shooterRow, (f32)shooterCol - 0.5f);
-            snprintf(buf, sizeof(buf), "[DBG] combat: plant at row=%d col=%d, zombie in that row=%s",
-                     shooterRow, shooterCol, zombieAhead ? "Y" : "N (won't fire)");
+            snprintf(buf, sizeof(buf), "[DBG] plant row=%d col=%d", shooterRow, shooterCol);
+            DrawLabel(8, y - 222, 0x66CCFFFF, 14, buf);
+            snprintf(buf, sizeof(buf), "[DBG] zombie in that row: %s", zombieAhead ? "YES" : "NO");
+            DrawLabel(8, y - 240, 0x66CCFFFF, 14, buf);
         }
-        DrawLabel(8, y - 204, 0x66CCFFFF, 12, buf);
     }
     /* [DEBUG] Missing-asset counter -- if this is nonzero, assets/ wasn't
      * found where Render_LoadTexture() looked (see FixWorkingDirectory in
@@ -1633,6 +1640,25 @@ void Render_Frame(const GameContext* game, const InputState* input)
     DrawSeedBar(game, input);
     DrawHud(game, input);
     DrawDiscFstIndicator(game); /* [DEBUG] see comment above its definition */
+    /* [DEBUG][TEMP] Isolation test: draw the first selected plant's seed
+     * icon a SECOND time, big (200x200) and dead center of the screen,
+     * completely outside DrawSeedBar's code path. If it shows up here but
+     * not in the seed bar, the bug is specific to the seed bar's small
+     * scale/position. If it's ALSO invisible here, the bug is in this
+     * texture/DrawTexturedBox generally, not the seed bar. Remove this
+     * whole block once that's answered. */
+    if (game->selectedCount > 0)
+    {
+        PlantType t = game->selectedPlants[0];
+        if (t >= 0 && t < PLANT_TYPE_COUNT && s_assets.seedIcon[t])
+        {
+            DrawRect(SCREEN_WIDTH / 2 - 105, SCREEN_HEIGHT / 2 - 105, 210, 210, 0xFF00FFFF);
+            DrawTexturedBox(s_assets.seedIcon[t], SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 100,
+                             200, 200, 0xFFFFFFFF, 0xFF0000FF, game->frameCount);
+            DrawLabel(SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 120, 0xFFFFFFFF, 14,
+                      "[DBG] isolation test: seedIcon[slot0] at 200x200");
+        }
+    }
     DrawLevelBanner(game);
     DrawLevelProgressBar(game);
     DrawSpawnGauge(game);
