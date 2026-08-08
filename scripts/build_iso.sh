@@ -114,7 +114,28 @@ if [[ ! -f "$TEMPLATE_EXTRACT/.ok" ]]; then
   mkdir -p "$TEMPLATE_EXTRACT"
 
   if [[ ! -f "$TEMPLATE_ZIP" ]]; then
-    curl -fsSL -o "$TEMPLATE_ZIP" "$TEMPLATE_URL"
+    # wit.wiimm.de is a small, single-maintainer server (not a CDN-backed
+    # one), and it's already been seen dropping connections mid-transfer
+    # here ("curl: (35) Recv failure: Connection reset by peer") -- same
+    # class of transient blip the WIT binary download hits in CI, just a
+    # different file from the same host. Retry with backoff instead of
+    # failing the whole ISO build over what a few seconds' wait fixes.
+    ok=0
+    for attempt in 1 2 3 4 5; do
+      if curl -fsSL -o "$TEMPLATE_ZIP" "$TEMPLATE_URL"; then
+        ok=1
+        break
+      fi
+      echo "    (download failed, attempt $attempt/5 -- retrying in $((attempt * 10))s)" >&2
+      rm -f "$TEMPLATE_ZIP"
+      sleep "$((attempt * 10))"
+    done
+    if [[ "$ok" -ne 1 ]]; then
+      echo "error: could not fetch composing template from $TEMPLATE_URL after 5 attempts" >&2
+      echo "       this is almost always transient (a connection reset on wit.wiimm.de's" >&2
+      echo "       end) -- re-running the build usually fixes it" >&2
+      exit 1
+    fi
   fi
 
   if command -v unzip >/dev/null 2>&1; then

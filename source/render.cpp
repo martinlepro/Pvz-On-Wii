@@ -726,8 +726,14 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
         DrawTexturedBox(s_assets.seedIcon[type], iconX, iconY, iconSize, iconSize, 0xFFFFFFFF, PlantColor(type), game->frameCount);
         u16 cost = Game_PlantCost(type);
         bool affordable = game->sun >= cost;
+        /* Was 0x00000090 (56% opaque black) -- dark enough over the icon
+         * plus the already-dark 0x1A1A1A slot background that it read as
+         * "no texture here" rather than "can't afford this yet" (that's
+         * exactly what happened testing the plant-rendering fix: the seed
+         * looked broken/missing when it was actually just fully dimmed).
+         * Lighter overlay reads as "dimmed" instead of "gone". */
         if (!affordable)
-            DrawRect(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, 0x00000090);
+            DrawRect(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, 0x00000050);
         if (s_bitmapFont || s_font)
         {
             char costBuf[8];
@@ -1049,7 +1055,7 @@ static void DrawHud(const GameContext* game, const InputState* input)
 {
     if (!s_bitmapFont && !s_font)
         return;
-    char buf[64];
+    char buf[128];
     s16 y = SCREEN_HEIGHT - 20;
     snprintf(buf, sizeof(buf), "Seed: %s", Game_PlantName(SlotToPlantDisplay(game, game->selectedSlot)));
     DrawLabel(8, y, COL_HUD_TEXT, 14, buf);
@@ -1070,6 +1076,50 @@ static void DrawHud(const GameContext* game, const InputState* input)
                  (unsigned)wave->spawnedCount, (unsigned)wave->zombieCount,
                  active, (double)wave->nextSpawnTimer / (double)TARGET_FPS);
         DrawLabel(8, y - 18, 0xFFFF00FF, 12, buf);
+    }
+    /* [DEBUG] Seed-icon texture status for the first selected slot -- rules
+     * out "the pointer is somehow null despite 0 missing textures" (would
+     * show N) vs. "it's loaded fine but doesn't render" (shows Y + real
+     * w/h, meaning the bug is downstream of loading). Delete once the
+     * seedpack icon is confirmed visible in the bar. */
+    if (game->selectedCount > 0)
+    {
+        PlantType firstType = game->selectedPlants[0];
+        GRRLIB_texImg* icon = (firstType >= 0 && firstType < PLANT_TYPE_COUNT)
+                                   ? s_assets.seedIcon[firstType] : NULL;
+        snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0]=%s %s",
+                 icon ? "Y" : "N",
+                 icon ? (icon->data ? "data=Y" : "data=N") : "");
+        if (icon)
+        {
+            char dims[32];
+            snprintf(dims, sizeof(dims), " %ux%u", (unsigned)icon->w, (unsigned)icon->h);
+            strncat(buf, dims, sizeof(buf) - strlen(buf) - 1);
+        }
+        DrawLabel(8, y - 186, 0x66CCFFFF, 12, buf);
+    }
+    /* [DEBUG] Combat: is there a shooter plant on the grid at all, and does
+     * it currently see a zombie in its own row? A shooter with no zombie
+     * in its row will correctly never fire -- that's not a bug, just
+     * nothing to shoot at yet. Delete once projectiles are confirmed. */
+    {
+        bool foundShooter = false;
+        s8 shooterRow = -1, shooterCol = -1;
+        for (s8 row = 0; row < (s8)game->rowCount && !foundShooter; ++row)
+            for (s8 col = 0; col < GRID_COLS; ++col)
+                if (game->grid[row][col].plant != PLANT_NONE)
+                { foundShooter = true; shooterRow = row; shooterCol = col; break; }
+        if (!foundShooter)
+        {
+            snprintf(buf, sizeof(buf), "[DBG] combat: no plant placed on the grid yet");
+        }
+        else
+        {
+            bool zombieAhead = Zombie_AnyActiveAheadInRow(game->zombies, (u8)shooterRow, (f32)shooterCol - 0.5f);
+            snprintf(buf, sizeof(buf), "[DBG] combat: plant at row=%d col=%d, zombie in that row=%s",
+                     shooterRow, shooterCol, zombieAhead ? "Y" : "N (won't fire)");
+        }
+        DrawLabel(8, y - 204, 0x66CCFFFF, 12, buf);
     }
     /* [DEBUG] Missing-asset counter -- if this is nonzero, assets/ wasn't
      * found where Render_LoadTexture() looked (see FixWorkingDirectory in

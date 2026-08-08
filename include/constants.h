@@ -67,7 +67,13 @@
 #define SETTINGS_PATH             "sd:/apps/pvz_wii/settings.cfg"
 
 /* Starting sun currency */
-#define STARTING_SUN           150
+/* [DEBUG][TEMP] Bumped from 150 while we're chasing the plant/projectile
+ * rendering issue -- with the real 150 (and the observed in-game 75, which
+ * is a separate discrepancy worth checking later), you can't afford the
+ * only selected plant (Peashooter, 100) at level start, so there's no way
+ * to get a plant onto the lawn to see whether its sprite/projectiles
+ * render at all. Revert to 150 once plant placement is confirmed working. */
+#define STARTING_SUN           9999
 
 /* Plant costs (sun) */
 #define COST_PEASHOOTER        100
