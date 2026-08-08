@@ -1628,6 +1628,28 @@ void Render_Frame(const GameContext* game, const InputState* input)
         return;
     }
     DrawWorldBackground(game);
+    /* [DEBUG][TEMP] Same isolation test as below, but drawn FIRST -- right
+     * after the background, before anything else this frame -- and on the
+     * LEFT half of the screen (the one at the end, further down, is now on
+     * the RIGHT half so both show in the same screenshot). Testing whether
+     * *draw order within the frame* is the actual variable: everything
+     * confirmed working so far (background, and apparently the legs) draws
+     * early; everything confirmed broken (seed icon at full isolation,
+     * projectiles, torso/head) draws comparatively late. If the LEFT
+     * (early) copy shows the pea and the RIGHT (late) one doesn't, that's
+     * the answer. Remove this whole block once that's answered. */
+    if (game->selectedCount > 0)
+    {
+        PlantType tEarly = game->selectedPlants[0];
+        if (tEarly >= 0 && tEarly < PLANT_TYPE_COUNT && s_assets.seedIcon[tEarly])
+        {
+            DrawRect(SCREEN_WIDTH / 4 - 105, SCREEN_HEIGHT / 2 - 105, 210, 210, 0xFF00FFFF);
+            DrawTexturedBox(s_assets.seedIcon[tEarly], SCREEN_WIDTH / 4 - 100, SCREEN_HEIGHT / 2 - 100,
+                             200, 200, 0xFFFFFFFF, 0xFF0000FF, game->frameCount);
+            DrawLabel(SCREEN_WIDTH / 4 - 100, SCREEN_HEIGHT / 2 - 120, 0xFFFFFFFF, 14,
+                      "[DBG] EARLY (right after bg)");
+        }
+    }
     DrawLawnGrid(game);
     DrawZombies(game);
     DrawProjectiles(game);
@@ -1640,23 +1662,19 @@ void Render_Frame(const GameContext* game, const InputState* input)
     DrawSeedBar(game, input);
     DrawHud(game, input);
     DrawDiscFstIndicator(game); /* [DEBUG] see comment above its definition */
-    /* [DEBUG][TEMP] Isolation test: draw the first selected plant's seed
-     * icon a SECOND time, big (200x200) and dead center of the screen,
-     * completely outside DrawSeedBar's code path. If it shows up here but
-     * not in the seed bar, the bug is specific to the seed bar's small
-     * scale/position. If it's ALSO invisible here, the bug is in this
-     * texture/DrawTexturedBox generally, not the seed bar. Remove this
-     * whole block once that's answered. */
+    /* [DEBUG][TEMP] Late copy of the same isolation test -- see the early
+     * one right after DrawWorldBackground above for what this is testing.
+     * Now on the RIGHT half of the screen so both are visible at once. */
     if (game->selectedCount > 0)
     {
-        PlantType t = game->selectedPlants[0];
-        if (t >= 0 && t < PLANT_TYPE_COUNT && s_assets.seedIcon[t])
+        PlantType tLate = game->selectedPlants[0];
+        if (tLate >= 0 && tLate < PLANT_TYPE_COUNT && s_assets.seedIcon[tLate])
         {
-            DrawRect(SCREEN_WIDTH / 2 - 105, SCREEN_HEIGHT / 2 - 105, 210, 210, 0xFF00FFFF);
-            DrawTexturedBox(s_assets.seedIcon[t], SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 100,
+            DrawRect(SCREEN_WIDTH * 3 / 4 - 105, SCREEN_HEIGHT / 2 - 105, 210, 210, 0xFF00FFFF);
+            DrawTexturedBox(s_assets.seedIcon[tLate], SCREEN_WIDTH * 3 / 4 - 100, SCREEN_HEIGHT / 2 - 100,
                              200, 200, 0xFFFFFFFF, 0xFF0000FF, game->frameCount);
-            DrawLabel(SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 120, 0xFFFFFFFF, 14,
-                      "[DBG] isolation test: seedIcon[slot0] at 200x200");
+            DrawLabel(SCREEN_WIDTH * 3 / 4 - 100, SCREEN_HEIGHT / 2 - 120, 0xFFFFFFFF, 14,
+                      "[DBG] LATE (end of frame)");
         }
     }
     DrawLevelBanner(game);
