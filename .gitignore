@@ -1,0 +1,27 @@
+# Build artifacts
+/build/
+*.elf
+*.dol
+*.map
+*.iso
+*.wbfs
+
+# Packaged outputs
+/output/
+/disc/staging/
+
+# Local, project-relocated tool installs -- fetched automatically by
+# scripts/setup_toolchain.bat after cloning (see tools/*/README.md)
+/tools/wit/*
+!/tools/wit/README.md
+/tools/wit-template/
+/tools/devkitpro/*
+!/tools/devkitpro/README.md
+
+# GRRLIB source -- CI clones this fresh every run (see .github/workflows/
+# build.yml) instead of relying on a committed copy; do the same locally via
+# scripts/setup_toolchain.bat rather than re-adding this folder to git.
+/vendor/
+
+# Optional custom HBC banner
+/icon.png

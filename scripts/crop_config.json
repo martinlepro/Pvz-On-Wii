@@ -1,0 +1,58 @@
+﻿{
+  "_comment": "Coords in the 1024x1024 source image for each zombie. Use null for auto-detect.",
+  "basic": {
+    "src": "basic.png",
+    "full": { "x": 16, "y": 32, "w": 177, "h": 313 },
+    "parts": {
+      "head.png":   { "x": 186, "y": 24,  "tw": 134, "th": 133 },
+      "torso.png":  { "x": 36,  "y": 372, "tw": 116, "th": 162 },
+      "arm.png":    { "x": 280, "y": 648, "tw": 67,  "th": 222 },
+      "leg_a.png":  { "x": 102, "y": 642, "tw": 122, "th": 227 },
+      "leg_b.png":  { "x": 276, "y": 642, "tw": 128, "th": 233 }
+    }
+  },
+  "conehead": {
+    "src": "Conehead.png",
+    "full": { "x": null, "y": null, "w": 172, "h": 293 },
+    "parts": {
+      "head.png":   { "x": null, "y": null, "tw": 134, "th": 133 },
+      "torso.png":  { "x": null, "y": null, "tw": 116, "th": 162 },
+      "arm.png":    { "x": null, "y": null, "tw": 67,  "th": 222 },
+      "leg_a.png":  { "x": null, "y": null, "tw": 122, "th": 227 },
+      "leg_b.png":  { "x": null, "y": null, "tw": 128, "th": 233 }
+    }
+  },
+  "buckhead": {
+    "src": "Buckhead.png",
+    "full": { "x": null, "y": null, "w": 176, "h": 309 },
+    "parts": {
+      "head.png":   { "x": null, "y": null, "tw": 134, "th": 133 },
+      "torso.png":  { "x": null, "y": null, "tw": 116, "th": 162 },
+      "arm.png":    { "x": null, "y": null, "tw": 67,  "th": 222 },
+      "leg_a.png":  { "x": null, "y": null, "tw": 122, "th": 227 },
+      "leg_b.png":  { "x": null, "y": null, "tw": 128, "th": 233 }
+    }
+  },
+  "flag": {
+    "src": "Flag.png",
+    "full": { "x": null, "y": null, "w": 184, "h": 310 },
+    "parts": {
+      "head.png":   { "x": null, "y": null, "tw": 134, "th": 133 },
+      "torso.png":  { "x": null, "y": null, "tw": 116, "th": 162 },
+      "arm.png":    { "x": null, "y": null, "tw": 67,  "th": 222 },
+      "leg_a.png":  { "x": null, "y": null, "tw": 122, "th": 227 },
+      "leg_b.png":  { "x": null, "y": null, "tw": 128, "th": 233 }
+    }
+  },
+  "football": {
+    "src": "Football.png",
+    "full": { "x": null, "y": null, "w": 213, "h": 348 },
+    "parts": {
+      "head.png":   { "x": null, "y": null, "tw": 134, "th": 133 },
+      "torso.png":  { "x": null, "y": null, "tw": 116, "th": 162 },
+      "arm.png":    { "x": null, "y": null, "tw": 67,  "th": 222 },
+      "leg_a.png":  { "x": null, "y": null, "tw": 122, "th": 227 },
+      "leg_b.png":  { "x": null, "y": null, "tw": 128, "th": 233 }
+    }
+  }
+}

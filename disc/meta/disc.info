@@ -1,0 +1,6 @@
+# Disc metadata consumed by Makefile and ISO build scripts.
+# DISC_ID must be exactly four uppercase ASCII characters (custom homebrew ID).
+DISC_TITLE=Plants vs Zombies Wii
+DISC_ID=PVZW
+DISC_REGION=E
+DISC_IOS=36
