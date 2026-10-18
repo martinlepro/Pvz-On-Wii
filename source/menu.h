@@ -19,6 +19,9 @@ extern "C" {
 #include "settings.h"
 #include "locale.h"
 #include "plant.h"
+
+/* Also declared in plant.h; repeated here so menu.cpp builds even with an older plant.h. */
+const char* Plant_Description(PlantType type);
 #include <stdbool.h>
 #include <grrlib.h>
 

@@ -97,6 +97,8 @@ void Plant_GetUnlockedForLevel(u8 levelIndex, PlantType* outList, u8* outCount) 
     *outCount = count;
 }
 
+extern "C" const char* Plant_Description(PlantType type); /* same as plant.h */
+
 static const char* s_plantDescriptions[PLANT_TYPE_COUNT] = {
     "Shoots peas at zombies in its lane, one every 1.5 seconds.",
     "Makes extra sun for you to spend. Plant plenty early on.",
