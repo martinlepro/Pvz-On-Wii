@@ -523,9 +523,14 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
         /* Full screen title background */
         if (s_titleBg && s_titleBg->data)
         {
-            GRRLIB_DrawImg(0, 0, s_titleBg, 0.0f,
-                (f32)SCREEN_WIDTH / (f32)s_titleBg->w,
-                (f32)SCREEN_HEIGHT / (f32)s_titleBg->h, 0xFFFFFFFF);
+            /* Explicit full-screen quad: GRRLIB_DrawImg() scales around the image
+             * centre, so a scaled draw at (0,0) landed shifted off-screen. */
+            guVector bgQuad[4] = {
+                { 0.0f,                0.0f,                 0.0f },
+                { (f32)SCREEN_WIDTH,   0.0f,                 0.0f },
+                { (f32)SCREEN_WIDTH,   (f32)SCREEN_HEIGHT,   0.0f },
+                { 0.0f,                (f32)SCREEN_HEIGHT,   0.0f } };
+            GRRLIB_DrawImgQuad(bgQuad, s_titleBg, 0xFFFFFFFF);
         }
         else
         {

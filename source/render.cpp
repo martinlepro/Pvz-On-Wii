@@ -375,6 +375,36 @@ static void DrawLabel(s16 x, s16 y, u32 color, unsigned int size, const char* te
     else if (s_bitmapFont)
         GRRLIB_Printf((f32)x, (f32)y, s_bitmapFont, color, BitmapFontZoomForSize(size), "%s", text);
 }
+/* Draws `tex` as an explicit screen-space quad (GRRLIB_DrawImgQuad), so the
+ * result does not depend on GRRLIB's handle/offset behaviour -- GRRLIB_DrawImg()
+ * scales and rotates around the image CENTRE, and combined with
+ * GRRLIB_SetHandle() that put every scaled sprite (the planted Peashooter,
+ * the zombies, the held seed) far down and to the right of where it was meant
+ * to be. Here the point (pivotFx, pivotFy) -- as fractions of the image,
+ * (0,0)=top-left, (0.5,1)=bottom-centre -- lands exactly on (px,py); the
+ * sprite is scaled by (sx,sy) and then rotated by angleDeg (clockwise
+ * positive) around that same point. */
+static void DrawSpriteQuad(GRRLIB_texImg* tex, f32 px, f32 py, f32 pivotFx, f32 pivotFy,
+                           f32 sx, f32 sy, f32 angleDeg, u32 color)
+{
+    if (!tex || !tex->data) return;
+    const f32 w = (f32)tex->w, h = (f32)tex->h;
+    const f32 lx0 = -pivotFx * w * sx,          ly0 = -pivotFy * h * sy;
+    const f32 lx1 = (1.0f - pivotFx) * w * sx,  ly1 = (1.0f - pivotFy) * h * sy;
+    const f32 rad = angleDeg * 3.14159265f / 180.0f;
+    const f32 c = cosf(rad), sn = sinf(rad);
+    const f32 cx[4] = { lx0, lx1, lx1, lx0 };
+    const f32 cy[4] = { ly0, ly0, ly1, ly1 };
+    guVector q[4];
+    for (int i = 0; i < 4; ++i)
+    {
+        q[i].x = px + cx[i] * c - cy[i] * sn;
+        q[i].y = py + cx[i] * sn + cy[i] * c;
+        q[i].z = 0.0f;
+    }
+    GRRLIB_DrawImgQuad(q, tex, color);
+}
+
 /** Draws `tex` scaled to fit (w,h) at (x,y) if loaded; otherwise a flat rect.
  *  No decorative border here -- a missing texture should just look like a
  *  plain placeholder, not a permanent (and misleading) selection outline. */
@@ -388,10 +418,9 @@ static void DrawTexturedBox(GRRLIB_texImg* tex, s16 x, s16 y, s16 w, s16 h, u32 
          * their sway/walk animation. This helper always means "draw at
          * (x,y) top-left", so it resets the pivot before every draw rather
          * than assuming nobody else touched it. */
-        GRRLIB_SetHandle(tex, 0, 0);
         f32 scaleX = (tex->w > 0) ? ((f32)w / (f32)tex->w) : 1.0f;
         f32 scaleY = (tex->h > 0) ? ((f32)h / (f32)tex->h) : 1.0f;
-        GRRLIB_DrawImg((f32)x, (f32)y, tex, 0.0f, scaleX, scaleY, tint);
+        DrawSpriteQuad(tex, (f32)x, (f32)y, 0.0f, 0.0f, scaleX, scaleY, 0.0f, tint);
     }
     else
     {
@@ -436,7 +465,6 @@ static void DrawPlantInCell(GRRLIB_texImg* tex, s16 cellX, s16 cellY, s16 cellW,
         /* Set (not just rely on load-time) since DrawTexturedBox -- used for
          * the held-seed preview on this same texture -- resets the pivot to
          * (0,0) later in the frame; each draw call owns the pivot it needs. */
-        GRRLIB_SetHandle(tex, tex->w / 2, tex->h);
         f32 footX = (f32)(cellX + cellW / 2);
         f32 footY = (f32)(cellY + cellH - pad);
         f32 phase = (f32)frameCount * 0.045f + (f32)(phaseSeed % 7) * 0.9f;
@@ -444,7 +472,7 @@ static void DrawPlantInCell(GRRLIB_texImg* tex, s16 cellX, s16 cellY, s16 cellW,
         f32 bob   = fabsf(sinf(phase * 0.5f)) * 2.0f;
         f32 targetH = (f32)(cellH - pad * 2);
         f32 s = targetH / (f32)tex->h;
-        GRRLIB_DrawImg(footX, footY - bob, tex, sway, s, s, 0xFFFFFFFF);
+        DrawSpriteQuad(tex, footX, footY - bob, 0.5f, 1.0f, s, s, sway, 0xFFFFFFFF);
     }
     else
     {
@@ -503,7 +531,7 @@ static void DrawSimpleZombie(const GameContext* game, const Zombie* z)
     if (tex && tex->h > 0)
     {
         f32 s = targetH / (f32)tex->h;
-        GRRLIB_DrawImg(footX, footY - bob, tex, sway, s, s, color);
+        DrawSpriteQuad(tex, footX, footY - bob, 0.5f, 1.0f, s, s, sway, color);
     }
     else
     {
@@ -558,15 +586,14 @@ static void DrawRigPart(GRRLIB_texImg* tex, f32 targetX, f32 targetY, f32 anchor
     if (!tex) return;
     f32 cx = targetX;
     f32 cy = targetY + (0.5f - anchorFrac) * (f32)tex->h * scaleY;
-    GRRLIB_SetHandle(tex, 0, 0);
-    GRRLIB_DrawImg(cx - (f32)tex->w * 0.5f, cy - (f32)tex->h * 0.5f, tex, angleDeg, scaleX, scaleY, color);
+    DrawSpriteQuad(tex, cx, cy, 0.5f, 0.5f, scaleX, scaleY, angleDeg, color);
 }
 /** All zombie types: composited from per-type parts/ (head, torso, arm,
  *  leg_a, leg_b) and animated frame-by-frame with procedural walk-cycle
  *  limb swinging. Each zombie type now provides its own parts, so the
  *  accessory system (cone/bucket/flag/helmet) is no longer needed --
  *  each type's head.png already includes its decoration. */
-static void DrawRiggedZombie(const GameContext* game, const Zombie* z, const ZombieDef* def)
+__attribute__((unused)) static void DrawRiggedZombie(const GameContext* game, const Zombie* z, const ZombieDef* def)
 {
     f32 footX = TileToScreenX(game, z->x + 0.5f);
     f32 footY = RowToScreenBottomY(game, z->row);
@@ -637,6 +664,12 @@ static void DrawZombieHealth(const GameContext* game, const Zombie* z)
     DrawHealthBar((s16)footX, (s16)(footY - game->cellH * 1.6f - 2),
                   game->cellW - 8, z->health, def->health);
 }
+/* The assets/zombies/<type>/parts/arm.png files are NOT arms -- they are a
+ * second shoe/leg fragment cut from the wrong part of the sheet, so the rig
+ * draws legs where the arms should be. Until real arm parts are cut, zombies
+ * are drawn from the complete full.png body (arms included) with the same
+ * bob/sway walk. Set to true to go back to the per-part rig. */
+static const bool kUseRiggedZombies = false;
 static void DrawZombies(const GameContext* game)
 {
     Render_ResetRigDebugCapture();
@@ -653,7 +686,7 @@ static void DrawZombies(const GameContext* game)
             GRRLIB_Rectangle(x + 12, y + 20, 8, 16, 0xFFFFFF10, true);
             continue;
         }
-        if (s_assets.rigHead[z->type] && s_assets.rigHead[z->type]->data)
+        if (kUseRiggedZombies && s_assets.rigHead[z->type] && s_assets.rigHead[z->type]->data)
             DrawRiggedZombie(game, z, Zombie_GetDef(z->type));
         else
             DrawSimpleZombie(game, z);
@@ -971,9 +1004,8 @@ static void DrawHeldSeed(const GameContext* game, const InputState* input)
     u32 tint = 0xFFFFFF00u | (u32)HELD_SEED_ALPHA;
     if (tex && tex->data && tex->h > 0)
     {
-        GRRLIB_SetHandle(tex, tex->w / 2, tex->h);
         f32 s = (f32)h / (f32)tex->h;
-        GRRLIB_DrawImg((f32)x, (f32)y, tex, 0.0f, s, s, tint);
+        DrawSpriteQuad(tex, (f32)x, (f32)y, 0.5f, 1.0f, s, s, 0.0f, tint);
     }
     else
     {
@@ -1012,89 +1044,6 @@ static void DrawReticle(const InputState* input)
     DrawRectOutline(cx - CURSOR_SIZE / 2, cy - CURSOR_SIZE / 2, CURSOR_SIZE, CURSOR_SIZE, COL_CURSOR, 2);
     DrawRect(cx - 2, cy - 2, 4, 4, COL_CURSOR);
 }
-/* [DEBUG] Font-independent status strip -- three small colored squares,
- * top-left, that draw unconditionally every frame regardless of
- * s_bitmapFont/s_font state. DrawHud() below bails out entirely before
- * printing anything if both fonts are unavailable, which is exactly the
- * "all text disappeared" symptom this exists to diagnose -- if THIS is
- * ever missing too, the whole render pass itself is in trouble, not just
- * text. Delete alongside the rest of this debug instrumentation once the
- * disc-native asset loading question is settled one way or the other.
- *   Square 1 (disc mount status): grey=not attempted, orange=no disc,
- *     yellow=no data partition, red=open-partition failed,
- *     magenta=bad FST (with 1-3 small white ticks below it for detail),
- *     green=mounted OK.
- *   Square 2 (missing textures): green=none missing, red=some missing.
- *   Square 3 (font state): green=a font is up (DrawHud can draw text),
- *     red=neither font is available (DrawHud is a no-op right now).
- *   Square 4 (TEMP -- which font path DrawLabel()/Render_DrawText() are
- *     actually using): blue=TTF (GRRLIB_PrintfTTF), green=built-in bitmap
- *     fallback (GRRLIB_Printf), red=neither. Added while chasing the "all
- *     text invisible, even with a font available" report -- square 3 alone
- *     can't tell TTF and bitmap apart, and they go through completely
- *     different GRRLIB code paths. Delete once that's answered. */
-static void DrawDiscFstIndicator(const GameContext* game)
-{
-    const f32 x = 8.0f, y = 8.0f, w = 12.0f, h = 12.0f, gap = 4.0f;
-    u32 discColor;
-    DiscFST_Status discStatus = DiscFST_GetStatus();
-    switch (discStatus)
-    {
-        case DISCFST_NOT_ATTEMPTED:         discColor = 0x808080FF; break;
-        case DISCFST_NO_DISC:               discColor = 0xFF8800FF; break;
-        case DISCFST_NO_DATA_PARTITION:     discColor = 0xFFFF00FF; break;
-        case DISCFST_OPEN_PARTITION_FAILED: discColor = 0xFF0000FF; break;
-        case DISCFST_BAD_FST:               discColor = 0xFF00FFFF; break;
-        case DISCFST_MOUNTED:               discColor = 0x00FF00FF; break;
-        default:                            discColor = 0xFFFFFFFF; break;
-    }
-    GRRLIB_Rectangle(x, y, w, h, discColor, true);
-    if (discStatus == DISCFST_BAD_FST)
-    {
-        int detail = DiscFST_GetBadFstDetail();
-        for (int i = 0; i < detail && i < 3; ++i)
-            GRRLIB_Rectangle(x + i * (w / 3.0f + 1.0f), y + h + 2.0f, w / 3.0f, 6.0f, 0xFFFFFFFF, true);
-    }
-    u32 texColor = (Render_GetMissingTextureCount() > 0) ? 0xFF0000FF : 0x00FF00FF;
-    GRRLIB_Rectangle(x + w + gap, y, w, h, texColor, true);
-    u32 fontColor = (Render_GetFont() || Render_GetBitmapFont()) ? 0x00FF00FF : 0xFF0000FF;
-    GRRLIB_Rectangle(x + (w + gap) * 2.0f, y, w, h, fontColor, true);
-    u32 fontPathColor = Render_GetFont() ? 0x3399FFFF : (Render_GetBitmapFont() ? 0x00FF00FF : 0xFF0000FF);
-    GRRLIB_Rectangle(x + (w + gap) * 3.0f, y, w, h, fontPathColor, true);
-    /* [DEBUG] Squares 5 and 6 -- added because the small debug TEXT lines
-     * turned out to be unreadable at TV/capture resolution, while these
-     * little color blocks read fine at a glance. Square 5: is at least one
-     * plant selected right now (red = selectedCount is 0 -> seed bar is
-     * empty, nothing can be placed, no projectiles either -- this is the
-     * single most likely explanation for "no seedpack/plants/projectiles").
-     * Square 6: is the first rigged zombie's leg scale in a sane ballpark
-     * (roughly 0.1x-2.5x) or wildly off (too small/huge -> a scale-
-     * computation bug rather than a positioning one); grey if no rigged
-     * zombie has been drawn yet this session. Delete this whole function
-     * once the rendering issues above are confirmed fixed. */
-    u32 selColor = (game->selectedCount > 0) ? 0x00FF00FF : 0xFF0000FF;
-    GRRLIB_Rectangle(x + (w + gap) * 4.0f, y, w, h, selColor, true);
-    u32 legColor;
-    if (!s_rigDebug.captured)
-        legColor = 0x808080FF;
-    else if (s_rigDebug.legScale < 0.1f || s_rigDebug.legScale > 2.5f)
-        legColor = 0xFF0000FF;
-    else
-        legColor = 0x00FF00FF;
-    GRRLIB_Rectangle(x + (w + gap) * 5.0f, y, w, h, legColor, true);
-    /* Square 7: does the foot actually touch the row's floor line (within
-     * 3px)? Grey if no rigged zombie captured yet, green if close enough,
-     * red if it's off by more than 3px (see the footDelta text line in
-     * DrawHud for the exact pixel count and direction). */
-    u32 footColor;
-    if (!s_rigDebug.captured)
-        footColor = 0x808080FF;
-    else if (fabsf(s_rigDebug.footDelta) < 3.0f)
-        footColor = 0x00FF00FF;
-    else
-        footColor = 0xFF0000FF;
-    GRRLIB_Rectangle(x + (w + gap) * 6.0f, y, w, h, footColor, true);
-}
 static void DrawHud(const GameContext* game, const InputState* input)
 {
     if (!s_bitmapFont && !s_font)
@@ -1106,174 +1055,6 @@ static void DrawHud(const GameContext* game, const InputState* input)
     const char* mode = input->nunchukConnected ? "Nunchuk" : (input->cursorValid ? "Pointer" : "No signal");
     snprintf(buf, sizeof(buf), "Input: %s", mode);
     DrawLabel(220, y, COL_HUD_TEXT, 14, buf);
-    /* [DEBUG] Wave/spawn state -- delete this block once zombies are
-     * confirmed to be spawning correctly; it's here purely to make that
-     * visible from the TV without needing build logs. */
-    if (game->state == GAME_STATE_PLAYING)
-    {
-        int active = 0;
-        for (int i = 0; i < MAX_ZOMBIES; ++i)
-            if (game->zombies[i].active) active++;
-        const LevelWave* wave = &game->waves[game->currentWave];
-        snprintf(buf, sizeof(buf), "[DBG] Wave %u/%u  spawned %u/%u  active %d  next %.1fs",
-                 (unsigned)(game->currentWave + 1), (unsigned)game->waveCount,
-                 (unsigned)wave->spawnedCount, (unsigned)wave->zombieCount,
-                 active, (double)wave->nextSpawnTimer / (double)TARGET_FPS);
-        DrawLabel(8, y - 18, 0xFFFF00FF, 12, buf);
-    }
-    /* [DEBUG] Seed-icon texture status for the first selected slot -- rules
-     * out "the pointer is somehow null despite 0 missing textures" (would
-     * show N) vs. "it's loaded fine but doesn't render" (shows Y + real
-     * w/h, meaning the bug is downstream of loading). Delete once the
-     * seedpack icon is confirmed visible in the bar. */
-    if (game->selectedCount > 0)
-    {
-        PlantType firstType = game->selectedPlants[0];
-        GRRLIB_texImg* icon = (firstType >= 0 && firstType < PLANT_TYPE_COUNT)
-                                   ? s_assets.seedIcon[firstType] : NULL;
-        if (!icon)
-            snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0] = NULL (not loaded)");
-        else if (!icon->data)
-            snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0] loaded, data=NULL");
-        else
-            snprintf(buf, sizeof(buf), "[DBG] seedIcon[slot0] OK, %u x %u px",
-                     (unsigned)icon->w, (unsigned)icon->h);
-        DrawLabel(8, y - 186, 0x66CCFFFF, 14, buf);
-    }
-    /* [DEBUG] Combat: is there a shooter plant on the grid at all, does it
-     * currently see a zombie in its own row, and how many projectiles are
-     * actually live in the pool right now? Split into short, separate
-     * lines on purpose -- a single long line got hard to read at TV/photo
-     * resolution. Delete once projectiles are confirmed on screen. */
-    {
-        int activeProj = 0;
-        for (int i = 0; i < MAX_PROJECTILES; ++i)
-            if (game->projectiles[i].active) activeProj++;
-        snprintf(buf, sizeof(buf), "[DBG] activeProjectiles=%d", activeProj);
-        DrawLabel(8, y - 204, 0x66CCFFFF, 14, buf);
-
-        bool foundShooter = false;
-        s8 shooterRow = -1, shooterCol = -1;
-        for (s8 row = 0; row < (s8)game->rowCount && !foundShooter; ++row)
-            for (s8 col = 0; col < GRID_COLS; ++col)
-                if (game->grid[row][col].plant != PLANT_NONE)
-                { foundShooter = true; shooterRow = row; shooterCol = col; break; }
-        if (!foundShooter)
-        {
-            snprintf(buf, sizeof(buf), "[DBG] no plant on grid yet");
-            DrawLabel(8, y - 222, 0x66CCFFFF, 14, buf);
-        }
-        else
-        {
-            bool zombieAhead = Zombie_AnyActiveAheadInRow(game->zombies, (u8)shooterRow, (f32)shooterCol - 0.5f);
-            snprintf(buf, sizeof(buf), "[DBG] plant row=%d col=%d", shooterRow, shooterCol);
-            DrawLabel(8, y - 222, 0x66CCFFFF, 14, buf);
-            snprintf(buf, sizeof(buf), "[DBG] zombie in that row: %s", zombieAhead ? "YES" : "NO");
-            DrawLabel(8, y - 240, 0x66CCFFFF, 14, buf);
-        }
-    }
-    /* [DEBUG] Missing-asset counter -- if this is nonzero, assets/ wasn't
-     * found where Render_LoadTexture() looked (see FixWorkingDirectory in
-     * main.cpp): every plant/seed/zombie/background falls back to a flat
-     * colored rectangle instead of its real art. Delete once art loading is
-     * confirmed working on real hardware/SD card. */
-    unsigned missing = Render_GetMissingTextureCount();
-    if (missing > 0)
-    {
-        snprintf(buf, sizeof(buf), "[DBG] %u texture(s) not found:", missing);
-        DrawLabel(8, y - 36, 0xFF6666FF, 12, buf);
-        for (unsigned i = 0; i < 4; ++i)
-        {
-            const char* p = Render_GetMissingTexturePath(i);
-            if (!p) break;
-            snprintf(buf, sizeof(buf), "  - %s", p);
-            DrawLabel(8, y - 36 - (s16)((i + 1) * 14), 0xFF6666FF, 12, buf);
-        }
-    }
-    /* [DEBUG] Seed-bar/selection state -- if selectedCount is 0 while
-     * PLAYING, the seed bar loop in DrawSeedBar() has nothing to iterate
-     * over, so no seed packets, no plant placement, and (as a knock-on
-     * effect) no projectiles either. Delete once confirmed correct. */
-    snprintf(buf, sizeof(buf), "[DBG] selectedCount=%u unlockedCount=%u state=%d",
-             (unsigned)game->selectedCount, (unsigned)game->unlockedCount, (int)game->state);
-    DrawLabel(8, y - 112, 0x66CCFFFF, 12, buf);
-    /* [DEBUG] First rigged zombie this frame: which of the 5 parts loaded
-     * (Y/N) and the screen coordinates each one was told to draw at. If a
-     * part shows N, it's a loading/indexing problem (see the missing-
-     * texture list above). If all show Y but torso/head/arm still don't
-     * appear on screen, the numbers below vs. the visible legs position
-     * tell us how far off the positioning math is. Delete once resolved. */
-    if (s_rigDebug.captured)
-    {
-        snprintf(buf, sizeof(buf), "[DBG] rig legA=%c legB=%c arm=%c torso=%c head=%c scale=%.2f",
-                 s_rigDebug.hasLegA ? 'Y' : 'N', s_rigDebug.hasLegB ? 'Y' : 'N',
-                 s_rigDebug.hasArm  ? 'Y' : 'N', s_rigDebug.hasTorso ? 'Y' : 'N',
-                 s_rigDebug.hasHead ? 'Y' : 'N', (double)s_rigDebug.legScale);
-        DrawLabel(8, y - 130, 0xFFAA33FF, 12, buf);
-        snprintf(buf, sizeof(buf), "[DBG] footX=%.0f hipY=%.0f shoulderY=%.0f headY=%.0f",
-                 (double)s_rigDebug.footX, (double)s_rigDebug.hipY,
-                 (double)s_rigDebug.shoulderY, (double)s_rigDebug.headY);
-        DrawLabel(8, y - 148, 0xFFAA33FF, 12, buf);
-        /* [DEBUG] The one number that matters for "feet floating above/
-         * sinking into the tile": how many pixels off the sole is from the
-         * row's floor line. Bigger font than the rest on purpose -- the
-         * smaller debug text was reported unreadable at TV/capture
-         * resolution. Positive = sole below the floor line (sinks in),
-         * negative = above it (floats). */
-        snprintf(buf, sizeof(buf), "[DBG] footDelta=%+.0fpx (foot%stouches row)",
-                 (double)s_rigDebug.footDelta,
-                 (fabsf(s_rigDebug.footDelta) < 3.0f) ? " " : " does NOT ");
-        DrawLabel(8, y - 168, 0xFFFFFFFF, 18, buf);
-    }
-    /* [DEBUG] Disc-native asset loading status (source/discfst.cpp) --
-     * only meaningful when launched from a disc/USB-loader build with no
-     * SD/USB assets present; this is what actually reached that code
-     * path. Delete alongside the counter above once this is resolved
-     * one way or the other. */
-    switch (DiscFST_GetStatus())
-    {
-        case DISCFST_NOT_ATTEMPTED:
-            break; /* SD/USB assets were found first -- disc path never ran */
-        case DISCFST_NO_DISC:
-            DrawLabel(8, y - 54, 0xFFAA33FF, 12, "[DBG] wiidisc: DI not ready / no disc");
-            break;
-        case DISCFST_NO_DATA_PARTITION:
-            DrawLabel(8, y - 54, 0xFFAA33FF, 12, "[DBG] wiidisc: no DATA partition found");
-            break;
-        case DISCFST_OPEN_PARTITION_FAILED:
-            snprintf(buf, sizeof(buf), "[DBG] wiidisc: DI_OpenPartition failed (code %d)",
-                     DiscFST_GetOpenPartitionError());
-            DrawLabel(8, y - 54, 0xFFAA33FF, 12, buf);
-            break;
-        case DISCFST_BAD_FST:
-        {
-            int detail = DiscFST_GetBadFstDetail();
-            if (detail == 1) /* read failed */
-            {
-                snprintf(buf, sizeof(buf), "[DBG] wiidisc: DI_Read error code %d",
-                         DiscFST_GetLastDiReadError());
-            }
-            else if (detail == 2) /* bad magic */
-            {
-                snprintf(buf, sizeof(buf), "[DBG] wiidisc: bad magic 0x%08X (want 0x5D1C9EA3)",
-                         DiscFST_GetLastMagic());
-            }
-            else if (detail == 3) /* bad fst fields */
-            {
-                snprintf(buf, sizeof(buf), "[DBG] wiidisc: bad FST off=0x%X size=0x%X",
-                         DiscFST_GetLastFstOffset(), DiscFST_GetLastFstSize());
-            }
-            else
-            {
-                snprintf(buf, sizeof(buf), "[DBG] wiidisc: opened but FST looked wrong");
-            }
-            DrawLabel(8, y - 54, 0xFFAA33FF, 12, buf);
-            break;
-        }
-        case DISCFST_MOUNTED:
-            DrawLabel(8, y - 54, 0xFF66FF66, 12, "[DBG] wiidisc: mounted OK");
-            break;
-    }
 }
 /* GRRLIB_LoadTTFFromFile() (GRRLIB_fileIO.c) loads the file into a buffer,
  * hands that buffer to GRRLIB_LoadTTF(), then immediately frees it. That's
@@ -1350,10 +1131,6 @@ bool Render_Init(void)
         s_assets.plantSprite[i] = (s_plantSpritePaths[i])
             ? Render_LoadTexture(s_plantSpritePaths[i])
             : NULL;
-        if (s_assets.plantSprite[i])
-        {
-            GRRLIB_SetHandle(s_assets.plantSprite[i], s_assets.plantSprite[i]->w / 2, s_assets.plantSprite[i]->h);
-        }
     }
     s_assets.sunIcon    = Render_LoadTexture("assets/ui/sun.png");
     s_assets.cursorIcon = Render_LoadTexture("assets/ui/cursor.png");
@@ -1396,10 +1173,6 @@ bool Render_Init(void)
         char path[96];
         snprintf(path, sizeof(path), "assets/zombies/%s/full.png", def->assetSlug);
         s_assets.zombieFull[i] = Render_LoadTexture(path);
-        if (s_assets.zombieFull[i])
-        {
-            GRRLIB_SetHandle(s_assets.zombieFull[i], s_assets.zombieFull[i]->w / 2, s_assets.zombieFull[i]->h);
-        }
     }
     return true;
 }
@@ -1672,28 +1445,6 @@ void Render_Frame(const GameContext* game, const InputState* input)
         return;
     }
     DrawWorldBackground(game);
-    /* [DEBUG][TEMP] Same isolation test as below, but drawn FIRST -- right
-     * after the background, before anything else this frame -- and on the
-     * LEFT half of the screen (the one at the end, further down, is now on
-     * the RIGHT half so both show in the same screenshot). Testing whether
-     * *draw order within the frame* is the actual variable: everything
-     * confirmed working so far (background, and apparently the legs) draws
-     * early; everything confirmed broken (seed icon at full isolation,
-     * projectiles, torso/head) draws comparatively late. If the LEFT
-     * (early) copy shows the pea and the RIGHT (late) one doesn't, that's
-     * the answer. Remove this whole block once that's answered. */
-    if (game->selectedCount > 0)
-    {
-        PlantType tEarly = game->selectedPlants[0];
-        if (tEarly >= 0 && tEarly < PLANT_TYPE_COUNT && s_assets.seedIcon[tEarly])
-        {
-            DrawRect(SCREEN_WIDTH / 4 - 105, SCREEN_HEIGHT / 2 - 105, 210, 210, 0xFF00FFFF);
-            DrawTexturedBox(s_assets.seedIcon[tEarly], SCREEN_WIDTH / 4 - 100, SCREEN_HEIGHT / 2 - 100,
-                             200, 200, 0xFFFFFFFF, 0xFF0000FF, game->frameCount);
-            DrawLabel(SCREEN_WIDTH / 4 - 100, SCREEN_HEIGHT / 2 - 120, 0xFFFFFFFF, 14,
-                      "[DBG] EARLY (right after bg)");
-        }
-    }
     DrawLawnGrid(game);
     DrawZombies(game);
     DrawProjectiles(game);
@@ -1705,22 +1456,6 @@ void Render_Frame(const GameContext* game, const InputState* input)
     DrawHeldSeed(game, input);
     DrawSeedBar(game, input);
     DrawHud(game, input);
-    DrawDiscFstIndicator(game); /* [DEBUG] see comment above its definition */
-    /* [DEBUG][TEMP] Late copy of the same isolation test -- see the early
-     * one right after DrawWorldBackground above for what this is testing.
-     * Now on the RIGHT half of the screen so both are visible at once. */
-    if (game->selectedCount > 0)
-    {
-        PlantType tLate = game->selectedPlants[0];
-        if (tLate >= 0 && tLate < PLANT_TYPE_COUNT && s_assets.seedIcon[tLate])
-        {
-            DrawRect(SCREEN_WIDTH * 3 / 4 - 105, SCREEN_HEIGHT / 2 - 105, 210, 210, 0xFF00FFFF);
-            DrawTexturedBox(s_assets.seedIcon[tLate], SCREEN_WIDTH * 3 / 4 - 100, SCREEN_HEIGHT / 2 - 100,
-                             200, 200, 0xFFFFFFFF, 0xFF0000FF, game->frameCount);
-            DrawLabel(SCREEN_WIDTH * 3 / 4 - 100, SCREEN_HEIGHT / 2 - 120, 0xFFFFFFFF, 14,
-                      "[DBG] LATE (end of frame)");
-        }
-    }
     DrawLevelBanner(game);
     DrawLevelProgressBar(game);
     DrawSpawnGauge(game);
