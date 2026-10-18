@@ -14,6 +14,15 @@
 #include <string.h>
 #include <wiiuse/wpad.h>
 
+/* items.cpp (level item rewards) -- re-declared locally so no header change is needed */
+extern "C" {
+bool ItemAward_Active(unsigned char levelIndex);
+bool ItemAward_Update(unsigned char levelIndex, u32 down, bool pointerValid, f32 px, f32 py);
+void ItemAward_Render(unsigned char levelIndex, bool pointerValid, f32 px, f32 py);
+}
+/* Level index the award screen is currently for (HandleInput sets it; Menu_Render only gets menu+settings). */
+static int s_awardLevel = -1;
+
 static GRRLIB_texImg* LoadButton(const char* name)
 {
     char path[64];
@@ -500,6 +509,16 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
         case MENU_VICTORY:
         {
             if (!game) { menu->screen = MENU_CLOSED; break; }
+            /* Levels without a plant reward may give an ITEM instead: gift -> open -> "New Item!" */
+            if (ItemAward_Active((unsigned char)game->currentLevelIndex))
+            {
+                s_awardLevel = game->currentLevelIndex;
+                ItemAward_Update((unsigned char)game->currentLevelIndex, down,
+                                 menu->pointerValid, menu->pointerX, menu->pointerY);
+                menu->cursorIndex = 0;
+                break;
+            }
+            s_awardLevel = -1;
             bool canNext = menu->canNextLevel;
             int itemCount = canNext ? 3 : 2;
             if (menu->cursorIndex < 0) menu->cursorIndex = itemCount - 1;
@@ -973,6 +992,12 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
 
         case MENU_VICTORY:
         {
+            if (s_awardLevel >= 0 && ItemAward_Active((unsigned char)s_awardLevel))
+            {
+                ItemAward_Render((unsigned char)s_awardLevel, menu->pointerValid,
+                                 menu->pointerX, menu->pointerY);
+                break;
+            }
             GRRLIB_Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x00000080, true);
             DrawTextLarge(SCREEN_WIDTH / 2 - 120, SCREEN_HEIGHT / 2 - 80, 0xFFDD33FF, "LEVEL WON!");
             /* Show world reward if any */

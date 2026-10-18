@@ -19,6 +19,10 @@
 #include "bitmap_font.h"
 #include "discfst.h"
 #include "progress_art.h"
+
+/* loadscreen.cpp: small loading screen shown during Render_Init() */
+void Loading_Set(float progress);
+void Loading_Finish(void);
 #include <grrlib.h>
 #include <stdio.h>
 #include <cstdio>
@@ -1182,6 +1186,10 @@ bool Render_Init(void)
     s_bitmapFont = BitmapFont_CreateTexture();
     if (!s_bitmapFont && !s_font)
         s_font = NULL;
+    /* Loading screen: one tick per loaded group, bar + sprouts grow with it. */
+    const int kLoadSteps = PLANT_TYPE_COUNT + 1 + WORLD_COUNT + ZOMBIE_TYPE_COUNT * 2;
+    int loadDone = 0;
+    Loading_Set(0.0f);
     /* Optional PNGs -- each load gracefully returns NULL if the file isn't
      * there yet, and every draw call falls back to a flat-colored rectangle. */
     for (int i = 0; i < PLANT_TYPE_COUNT; ++i)
@@ -1192,6 +1200,7 @@ bool Render_Init(void)
         s_assets.plantSprite[i] = (s_plantSpritePaths[i])
             ? Render_LoadTexture(s_plantSpritePaths[i])
             : NULL;
+        Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     }
     s_assets.sunIcon    = Render_LoadTexture("assets/ui/sun.png");
     s_assets.cursorIcon = Render_LoadTexture("assets/ui/cursor.png");
@@ -1206,9 +1215,11 @@ bool Render_Init(void)
     if (!s_assets.pbFlag) s_assets.pbFlag = GRRLIB_LoadTexture(kProgressArt_flag); /* embedded copy */
     s_assets.pbLabel    = Render_LoadTexture("assets/ui/progress_label.png");
     if (!s_assets.pbLabel) s_assets.pbLabel = GRRLIB_LoadTexture(kProgressArt_label); /* embedded copy */
+    Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     for (int i = 0; i < WORLD_COUNT; ++i)
     {
         s_assets.worldBg[i] = Render_LoadTexture(s_worldBgPaths[i]);
+        Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     }
     /* Each zombie type: try to load per-part rig textures from
      * assets/zombies/<slug>/parts/{head,torso,arm,leg_a,leg_b}.png.
@@ -1228,6 +1239,7 @@ bool Render_Init(void)
         s_assets.rigLegA[i] = Render_LoadTexture(path);
         snprintf(path, sizeof(path), "assets/zombies/%s/parts/leg_b.png", def->assetSlug);
         s_assets.rigLegB[i] = Render_LoadTexture(path);
+        Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
         /* No more per-part GRRLIB_SetHandle here: positioning is now done
          * by DrawRigPart() in DrawRiggedZombie(), which always uses handle
          * (0,0) and computes xpos/ypos itself -- see the big comment above
@@ -1244,7 +1256,10 @@ bool Render_Init(void)
         char path[96];
         snprintf(path, sizeof(path), "assets/zombies/%s/full.png", def->assetSlug);
         s_assets.zombieFull[i] = Render_LoadTexture(path);
+        Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     }
+    Loading_Set(1.0f);
+    Loading_Finish();
     return true;
 }
 void Render_Shutdown(void)
