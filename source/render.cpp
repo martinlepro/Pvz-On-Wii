@@ -23,6 +23,14 @@
 /* loadscreen.cpp: small loading screen shown during Render_Init() */
 void Loading_Set(float progress);
 void Loading_Finish(void);
+/* projfx.cpp: real projectile sprites + impact effects */
+extern "C" {
+void ProjFx_Load(void);
+void ProjFx_Free(void);
+void ProjFx_BeginFrame(const GameContext* game);
+bool ProjFx_DrawProjectile(const GameContext* game, int i, f32 sx, f32 sy);
+void ProjFx_DrawEffects(const GameContext* game);
+}
 #include <grrlib.h>
 #include <stdio.h>
 #include <cstdio>
@@ -1187,7 +1195,7 @@ bool Render_Init(void)
     if (!s_bitmapFont && !s_font)
         s_font = NULL;
     /* Loading screen: one tick per loaded group, bar + sprouts grow with it. */
-    const int kLoadSteps = PLANT_TYPE_COUNT + 1 + WORLD_COUNT + ZOMBIE_TYPE_COUNT * 2;
+    const int kLoadSteps = PLANT_TYPE_COUNT + 1 + WORLD_COUNT + ZOMBIE_TYPE_COUNT * 2 + 1;
     int loadDone = 0;
     Loading_Set(0.0f);
     /* Optional PNGs -- each load gracefully returns NULL if the file isn't
@@ -1258,12 +1266,15 @@ bool Render_Init(void)
         s_assets.zombieFull[i] = Render_LoadTexture(path);
         Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     }
+    ProjFx_Load();
+    Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     Loading_Set(1.0f);
     Loading_Finish();
     return true;
 }
 void Render_Shutdown(void)
 {
+    ProjFx_Free();
     for (int i = 0; i < PLANT_TYPE_COUNT; ++i)
     {
         if (s_assets.seedIcon[i])    GRRLIB_FreeTexture(s_assets.seedIcon[i]);
@@ -1639,12 +1650,15 @@ static f32 ProjectileRadius(ProjectileKind kind)
 }
 static void DrawProjectiles(const GameContext* game)
 {
+    ProjFx_BeginFrame(game); /* hit detection -> impact effects */
     for (int i = 0; i < MAX_PROJECTILES; i++)
     {
         const Projectile* p = &game->projectiles[i];
         if (!p->active) continue;
         f32 sx = game->lawnX + p->x * game->cellW;
         f32 sy = game->lawnY + p->y * game->cellH;
+        if (ProjFx_DrawProjectile(game, i, sx, sy)) continue; /* real sprite drawn */
+        /* else: art missing -> old tinted pea / circle placeholder below */
         bool isPeaShaped = (p->kind == PROJ_PEA || p->kind == PROJ_SNOW ||
                             p->kind == PROJ_FIRE || p->kind == PROJ_FUME);
         if (isPeaShaped && s_assets.projPea && s_assets.projPea->data)
@@ -1659,6 +1673,7 @@ static void DrawProjectiles(const GameContext* game)
             GRRLIB_Circle(sx, sy, ProjectileRadius(p->kind), ProjectileColor(p->kind), true);
         }
     }
+    ProjFx_DrawEffects(game);
 }
 static void DrawParticles(const GameContext* game)
 {
