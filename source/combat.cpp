@@ -617,11 +617,21 @@ void Combat_Update(GameContext* game) {
             GridCell* cell = &game->grid[row][col];
             if (!IsShooter(cell->plant)) continue;
 
+            /* Looking for a zombie in the row is done only once per second per
+             * plant (not every frame); the shot decision below uses the result
+             * of the last scan. New plants scan on their first tick. */
+            if (cell->scanTimer > 0) {
+                cell->scanTimer--;
+            } else {
+                cell->zombieInRow = Zombie_AnyActiveAheadInRow(game->zombies, (u8)row, (f32)col - 0.5f);
+                cell->scanTimer = (u8)(TARGET_FPS - 1);
+            }
+
             if (cell->shootTimer > 0) {
                 cell->shootTimer--;
                 continue;
             }
-            if (!Zombie_AnyActiveAheadInRow(game->zombies, (u8)row, (f32)col - 0.5f))
+            if (!cell->zombieInRow)
                 continue;
 
             if (FireShooter(game, row, col, cell->plant)) {

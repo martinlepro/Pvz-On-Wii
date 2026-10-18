@@ -140,6 +140,8 @@ static bool TryPlantAtCell(GameContext* game, s8 col, s8 row, PlantType type)
     cell->plant = type;
     cell->health = Plant_MaxHealth(type);
     cell->shootTimer = 0;
+    cell->scanTimer = 0;       /* scan its row right away, then once per second */
+    cell->zombieInRow = false;
 
     if (type == PLANT_CHERRY_BOMB) {
         Combat_TriggerCherryBomb(game, col, row);
@@ -353,6 +355,8 @@ void Game_Reset(GameContext* game)
             game->grid[row][col].plant = PLANT_NONE;
             game->grid[row][col].health = 0;
             game->grid[row][col].shootTimer = 0;
+            game->grid[row][col].scanTimer = 0;
+            game->grid[row][col].zombieInRow = false;
             game->grid[row][col].hasLilyPad = false;
             game->grid[row][col].hasFlowerPot = false;
             game->grid[row][col].hasGrave = false;

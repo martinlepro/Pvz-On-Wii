@@ -237,6 +237,8 @@ void Minigame_OnPlantPlaced(GameContext* game, s8 col, s8 row, PlantType type)
             cell->plant = type;
             cell->health = Plant_MaxHealth(type);
             cell->shootTimer = 0;
+            cell->scanTimer = 0;
+            cell->zombieInRow = false;
         }
     }
 }
