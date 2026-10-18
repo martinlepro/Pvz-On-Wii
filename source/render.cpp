@@ -18,6 +18,7 @@
 #include "survival.h"
 #include "bitmap_font.h"
 #include "discfst.h"
+#include "progress_art.h"
 #include <grrlib.h>
 #include <stdio.h>
 #include <cstdio>
@@ -1196,10 +1197,15 @@ bool Render_Init(void)
     s_assets.cursorIcon = Render_LoadTexture("assets/ui/cursor.png");
     s_assets.projPea    = Render_LoadTexture("assets/projectiles/pea.png");
     s_assets.pbFrame    = Render_LoadTexture("assets/ui/progress_frame.png");
+    if (!s_assets.pbFrame) s_assets.pbFrame = GRRLIB_LoadTexture(kProgressArt_frame); /* embedded copy */
     s_assets.pbFill     = Render_LoadTexture("assets/ui/progress_fill.png");
+    if (!s_assets.pbFill) s_assets.pbFill = GRRLIB_LoadTexture(kProgressArt_fill); /* embedded copy */
     s_assets.pbZombie   = Render_LoadTexture("assets/ui/progress_zombie.png");
+    if (!s_assets.pbZombie) s_assets.pbZombie = GRRLIB_LoadTexture(kProgressArt_zombie); /* embedded copy */
     s_assets.pbFlag     = Render_LoadTexture("assets/ui/progress_flag.png");
+    if (!s_assets.pbFlag) s_assets.pbFlag = GRRLIB_LoadTexture(kProgressArt_flag); /* embedded copy */
     s_assets.pbLabel    = Render_LoadTexture("assets/ui/progress_label.png");
+    if (!s_assets.pbLabel) s_assets.pbLabel = GRRLIB_LoadTexture(kProgressArt_label); /* embedded copy */
     for (int i = 0; i < WORLD_COUNT; ++i)
     {
         s_assets.worldBg[i] = Render_LoadTexture(s_worldBgPaths[i]);
