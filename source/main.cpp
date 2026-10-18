@@ -243,9 +243,7 @@ int main(int argc, char** argv)
             if (input.menuTogglePressed)
             {
                 /* Quick start: start Adventure immediately with Peashooter */
-                Level_Start(&game, 0);
-                Game_ToggleSelection(&game, PLANT_PEASHOOTER);
-                Game_ConfirmSelection(&game);
+                Level_Start(&game, 0); /* adventure levels auto-fill the seed bar and start */
                 menu.screen = MENU_CLOSED;
             }
             else

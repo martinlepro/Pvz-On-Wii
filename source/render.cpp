@@ -80,6 +80,12 @@ typedef struct {
      * (PROJ_PEA/SNOW/FIRE/FUME -- see DrawProjectiles). Tinted per-kind via
      * ProjectileColor() at draw time instead of needing 4 separate files. */
     GRRLIB_texImg* projPea;
+    /* Level-progress meter (assets/ui/progress_*.png) */
+    GRRLIB_texImg* pbFrame;
+    GRRLIB_texImg* pbFill;
+    GRRLIB_texImg* pbZombie;
+    GRRLIB_texImg* pbFlag;
+    GRRLIB_texImg* pbLabel;
 } RenderAssets;
 static RenderAssets     s_assets;
 static GRRLIB_ttfFont*  s_font = NULL;
@@ -1189,6 +1195,11 @@ bool Render_Init(void)
     s_assets.sunIcon    = Render_LoadTexture("assets/ui/sun.png");
     s_assets.cursorIcon = Render_LoadTexture("assets/ui/cursor.png");
     s_assets.projPea    = Render_LoadTexture("assets/projectiles/pea.png");
+    s_assets.pbFrame    = Render_LoadTexture("assets/ui/progress_frame.png");
+    s_assets.pbFill     = Render_LoadTexture("assets/ui/progress_fill.png");
+    s_assets.pbZombie   = Render_LoadTexture("assets/ui/progress_zombie.png");
+    s_assets.pbFlag     = Render_LoadTexture("assets/ui/progress_flag.png");
+    s_assets.pbLabel    = Render_LoadTexture("assets/ui/progress_label.png");
     for (int i = 0; i < WORLD_COUNT; ++i)
     {
         s_assets.worldBg[i] = Render_LoadTexture(s_worldBgPaths[i]);
@@ -1240,6 +1251,11 @@ void Render_Shutdown(void)
     if (s_assets.sunIcon)    GRRLIB_FreeTexture(s_assets.sunIcon);
     if (s_assets.cursorIcon) GRRLIB_FreeTexture(s_assets.cursorIcon);
     if (s_assets.projPea)    GRRLIB_FreeTexture(s_assets.projPea);
+    if (s_assets.pbFrame)    GRRLIB_FreeTexture(s_assets.pbFrame);
+    if (s_assets.pbFill)     GRRLIB_FreeTexture(s_assets.pbFill);
+    if (s_assets.pbZombie)   GRRLIB_FreeTexture(s_assets.pbZombie);
+    if (s_assets.pbFlag)     GRRLIB_FreeTexture(s_assets.pbFlag);
+    if (s_assets.pbLabel)    GRRLIB_FreeTexture(s_assets.pbLabel);
     for (int i = 0; i < WORLD_COUNT; ++i)
     {
         if (s_assets.worldBg[i]) GRRLIB_FreeTexture(s_assets.worldBg[i]);
@@ -1390,7 +1406,7 @@ static void DrawSpawnGauge(const GameContext* game)
  *  gives it the visible slow-down-and-settle motion at each tick instead of
  *  a linear/instant fill. Hidden outside PLAYING/LEVEL_WON (selection
  *  screen, game over) or if there's no wave data yet. */
-static void DrawLevelProgressBar(const GameContext* game)
+static void DrawLevelProgressBarSimple(const GameContext* game)
 {
     if (game->state != GAME_STATE_PLAYING && game->state != GAME_STATE_LEVEL_WON) return;
     if (game->waveCount == 0) return;
@@ -1420,6 +1436,74 @@ static void DrawLevelProgressBar(const GameContext* game)
         if (tx >= x + w) tx = x + w - 1;
         GRRLIB_Line((f32)tx, (f32)y, (f32)tx, (f32)(y + h), 0x000000C0);
     }
+}
+/** Level-progress meter, bottom-right: a framed bar that fills from the right
+ *  (where the zombies come from) toward the left as the level advances, a
+ *  zombie head riding the front of the fill, a flag at the start of every
+ *  wave (it pops up once that point has been reached), and the
+ *  "LEVEL PROGRESS" caption underneath. Uses the eased
+ *  game->levelProgressDisplayed value. Falls back to the plain bar if the
+ *  art in assets/ui/progress_*.png is missing. */
+static void DrawLevelProgressBar(const GameContext* game)
+{
+    GRRLIB_texImg* frame = s_assets.pbFrame;
+    GRRLIB_texImg* fill  = s_assets.pbFill;
+    if (!frame || !frame->data || !fill || !fill->data)
+    {
+        DrawLevelProgressBarSimple(game);
+        return;
+    }
+    if (game->state != GAME_STATE_PLAYING && game->state != GAME_STATE_LEVEL_WON) return;
+    if (game->waveCount == 0) return;
+
+    f32 progress = game->levelProgressDisplayed;
+    if (progress < 0.0f) progress = 0.0f;
+    if (progress > 1.0f) progress = 1.0f;
+
+    const f32 fw = (f32)frame->w, fh = (f32)frame->h;
+    const f32 fx = (f32)(SCREEN_WIDTH - frame->w - 14);
+    const f32 fy = (f32)(SCREEN_HEIGHT - 12 - 3 - frame->h - 14);
+
+    /* Geometry of the green well inside the frame art (see assets/ui/progress_*.png):
+     * the fill strip's top-left sits at (8,8) and it is 144 px wide when full. */
+    const f32 wellW    = (f32)fill->w;
+    const f32 wellRight = fx + 8.0f + wellW;
+    const f32 wellTop   = fy + 8.0f;
+
+    DrawSpriteQuad(frame, fx, fy, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFFFF);
+
+    f32 fillW = wellW * progress;
+    if (fillW >= 1.0f)
+        DrawSpriteQuad(fill, wellRight - fillW, wellTop, 0.0f, 0.0f, progress, 1.0f, 0.0f, 0xFFFFFFFF);
+
+    /* Wave flags: planted at the start of each wave; raised once reached. */
+    GRRLIB_texImg* flag = s_assets.pbFlag;
+    if (flag && flag->data)
+    {
+        f32 ticks[MAX_WAVES_PER_LEVEL];
+        u8 tickCount = Level_GetWaveTickFractions(game, ticks);
+        for (u8 i = 0; i < tickCount; ++i)
+        {
+            f32 tx = wellRight - (wellW - 1.0f) * ticks[i];
+            bool reached = progress >= ticks[i];
+            f32 baseY = fy + 4.0f - (reached ? 5.0f : 0.0f);   /* flag's bottom edge */
+            DrawSpriteQuad(flag, tx, baseY, 0.1f, 1.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFFFF);
+        }
+    }
+
+    /* Zombie head at the front of the fill */
+    GRRLIB_texImg* head = s_assets.pbZombie;
+    if (head && head->data)
+    {
+        f32 hx = wellRight - fillW;
+        f32 wob = sinf((f32)game->frameCount * 0.12f) * 1.0f;
+        DrawSpriteQuad(head, hx, fy + fh * 0.5f + 5.0f + wob, 0.5f, 1.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFFFF);
+    }
+
+    /* Caption below */
+    GRRLIB_texImg* label = s_assets.pbLabel;
+    if (label && label->data)
+        DrawSpriteQuad(label, fx + (fw - (f32)label->w) * 0.5f, fy + fh + 2.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFFFF);
 }
 static void DrawSelectionScreen(const GameContext* game, const InputState* input)
 {

@@ -214,11 +214,30 @@ void Level_Start(GameContext* game, u8 levelIndex) {
         }
     }
 
-    /* Build unlocked plant list and go to selection screen */
+    /* Build unlocked plant list */
     Plant_GetUnlockedForLevel(levelIndex, game->unlockedPlants, &game->unlockedCount);
     game->selectedCount = 0;
     game->selectionCursor = 0;
     game->state = GAME_STATE_SELECTING;
+
+    /* Adventure levels: the player does NOT pick seeds (there aren't enough
+     * seed slots for everything unlocked). The seed bar is filled
+     * automatically with the unlocked plants -- all of them while they fit,
+     * otherwise the most recently unlocked ones -- and the level starts at
+     * once, skipping the selection screen. Survival and mini-games still use
+     * the selection screen. */
+    if (!isSurvival && !Minigame_IsMinigame(levelIndex)) {
+        u8 n = game->unlockedCount;
+        u8 first = (n > MAX_SELECTED_PLANTS) ? (u8)(n - MAX_SELECTED_PLANTS) : 0;
+        for (u8 i = first; i < n; ++i)
+            game->selectedPlants[game->selectedCount++] = game->unlockedPlants[i];
+
+        /* 1-1 .. 1-7 always start with 100 sun */
+        if (Level_GetWorld(levelIndex) == WORLD_DAY && levelIndex < EARLY_LEVEL_COUNT)
+            game->sun = EARLY_LEVEL_STARTING_SUN;
+
+        Level_StartPlaying(game);
+    }
 
     /* Start level-appropriate background music */
     Audio_PlayLevelBGM(levelIndex);
@@ -264,8 +283,8 @@ void Level_Update(GameContext* game) {
 
     /* Adventure Mode only: the last/biggest wave of the level doesn't start
      * spawning right away. First the red "A huge wave of zombies is
-     * approaching!" banner shows for HUGE_WAVE_MESSAGE_FRAMES, then there's
-     * a silent HUGE_WAVE_POST_DELAY_FRAMES beat with an empty lawn -- 3
+     * approaching!" banner shows for HUGE_WAVE_MESSAGE_FRAMES (3 s), then there's
+     * a silent HUGE_WAVE_POST_DELAY_FRAMES beat with an empty lawn -- 4
      * seconds total, all automatic, no "+" needed to continue. */
     if (game->hugeWavePending) {
         if (game->showHugeWaveMessage) {
