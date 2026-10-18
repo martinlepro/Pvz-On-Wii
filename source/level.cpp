@@ -10,6 +10,14 @@
 #include "minigame.h"
 #include "survival.h"
 
+/* Also defined in constants.h; repeated so this file builds even with an older constants.h. */
+#ifndef EARLY_LEVEL_STARTING_SUN
+#define EARLY_LEVEL_STARTING_SUN 100   /* sun at the start of adventure levels 1-1 .. 1-7 */
+#endif
+#ifndef EARLY_LEVEL_COUNT
+#define EARLY_LEVEL_COUNT        7
+#endif
+
 World Level_GetWorld(u8 levelIndex) {
     return (World)((levelIndex / LEVELS_PER_WORLD) % WORLD_COUNT);
 }
