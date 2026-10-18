@@ -97,6 +97,64 @@ void Plant_GetUnlockedForLevel(u8 levelIndex, PlantType* outList, u8* outCount) 
     *outCount = count;
 }
 
+static const char* s_plantDescriptions[PLANT_TYPE_COUNT] = {
+    "Shoots peas at zombies in its lane, one every 1.5 seconds.",
+    "Makes extra sun for you to spend. Plant plenty early on.",
+    "Explodes in a big blast that wipes out nearby zombies.",
+    "A tough wall that soaks up bites and keeps zombies busy.",
+    "Takes a while to arm, then blows up any zombie that steps on it.",
+    "Fires frozen peas that damage zombies and slow them down.",
+    "Swallows a zombie whole, but needs a long time to digest.",
+    "Shoots two peas at a time for double the damage.",
+    "A free night-time shooter with a short range.",
+    "Makes small sun at first, then grows to make more.",
+    "Sprays fumes that hit every zombie in front of it.",
+    "Clears away a gravestone, then disappears.",
+    "Zombies that eat it turn around and fight for you.",
+    "Shoots from far away, but hides when zombies get close.",
+    "Freezes every zombie on the lawn for a few seconds.",
+    "Causes a huge explosion and leaves a crater behind.",
+    "Lets you plant on water.",
+    "Flattens the first zombie that gets close.",
+    "Shoots peas down three lanes at once.",
+    "Drags a zombie underwater in the pool.",
+    "Burns every zombie in an entire lane.",
+    "Spikes on the ground that hurt zombies walking over them.",
+    "Peas passing through it turn to fire and hit harder.",
+    "A very tall wall that zombies cannot jump over.",
+    "A water-loving shooter with a short range.",
+    "Lights up the fog so you can see the zombies in it.",
+    "Shoots spikes, even at balloon zombies in the air.",
+    "Blows away fog and balloon zombies.",
+    "Shoots peas forward and backward at the same time.",
+    "Fires stars in five different directions.",
+    "A shell planted around another plant to protect it.",
+    "Pulls the metal gear off zombies.",
+    "Lobs cabbages over obstacles at zombies.",
+    "Lets you plant on the roof.",
+    "Lobs corn kernels, and sometimes butter to stun zombies.",
+    "Wakes up sleeping mushrooms.",
+    "Makes zombies change lanes when they bite it.",
+    "Protects nearby plants from things that fall from above.",
+    "Grows coins for you to collect.",
+    "Lobs heavy melons that splash nearby zombies.",
+    "Fires four peas in rapid succession.",
+    "Makes double the sun of a normal Sunflower.",
+    "Releases fumes in every direction around it.",
+    "Shoots homing spikes, and can be planted on water.",
+    "Lobs icy melons that damage and slow zombies.",
+    "Collects coins and silver for you automatically.",
+    "Tough spikes that survive many zombie steps.",
+    "Fires a devastating corn cob at any target.",
+    "Copies any other plant for you.",
+};
+
+const char* Plant_Description(PlantType type) {
+    if (type < 0 || type >= PLANT_TYPE_COUNT)
+        return "";
+    return s_plantDescriptions[type];
+}
+
 const char* Plant_Name(PlantType type) {
     if (type < 0 || type >= PLANT_TYPE_COUNT)
         return "?";

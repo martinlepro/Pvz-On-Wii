@@ -221,6 +221,12 @@ int main(int argc, char** argv)
     {
         Input_Update(&input, &settings);
 
+        /* Hand the pointer to the menu (hover/click on its on-screen buttons). */
+        menu.pointerValid = input.cursorValid;
+        menu.pointerX     = input.cursor.x;
+        menu.pointerY     = input.cursor.y;
+        menu.animFrame++;
+
         if (WPAD_ButtonsDown(0) & WPAD_BUTTON_HOME)
         {
             if (!Menu_IsTitle(&menu))
@@ -273,7 +279,9 @@ int main(int argc, char** argv)
 
                 if (game.state == GAME_STATE_LEVEL_WON)
                 {
-                    menu.screen = MENU_VICTORY;
+                    /* A newly unlocked plant gets its own "New Plant!" screen first;
+                     * Continue there leads on to the usual victory menu. */
+                    menu.screen = (game.newRewardPlant != PLANT_NONE) ? MENU_NEW_PLANT : MENU_VICTORY;
                     menu.cursorIndex = 0;
                     menu.canNextLevel = game.currentLevelIndex < (u8)(TOTAL_LEVELS - 1) &&
                                         !Survival_IsSurvival(game.currentLevelIndex);
@@ -292,6 +300,8 @@ int main(int argc, char** argv)
 
         Render_Frame(&game, &input);
         Menu_Render(&menu, &settings);
+        if (menu.screen == MENU_NEW_PLANT)
+            Render_DrawReticle(&input); /* the full-screen art would otherwise cover the pointer */
         Render_Present();
     }
 

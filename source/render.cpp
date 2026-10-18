@@ -456,23 +456,75 @@ static void DrawHealthBar(s16 cx, s16 cy, s16 barW, s16 curHP, s16 maxHP)
  *  Wall-nut's cracking face, etc.) isn't implemented yet; this is just enough
  *  motion to read as "alive" rather than a pasted-on sticker. `phaseSeed`
  *  (e.g. row*7+col) staggers plants so they don't all sway in lockstep. */
+/* Pea-shooter attack animation. Pea plants fire once every cooldown
+ * (SHOOTER_COOLDOWN_FRAMES = 1.5 s for the Peashooter); combat.cpp sets
+ * GridCell::shootTimer to the cooldown the moment a shot leaves and counts it
+ * down, so "frames since the shot" = cooldown - shootTimer. We play a quick
+ * recoil (lean back, squash, kick left) right after the shot, and a small
+ * wind-up (lean forward, stretch) in the last few frames before the next one. */
+static u16 PeaCooldownFrames(PlantType t)
+{
+    switch (t)
+    {
+        case PLANT_PEASHOOTER:
+        case PLANT_SNOW_PEA:
+        case PLANT_THREEPEATER:
+        case PLANT_SPLIT_PEA:    return (u16)SHOOTER_COOLDOWN_FRAMES;
+        case PLANT_REPEATER:     return (u16)REPEATER_COOLDOWN_FRAMES;
+        case PLANT_GATLING_PEA:  return (u16)GATLING_COOLDOWN_FRAMES;
+        default:                 return 0; /* not a pea plant -> no attack animation */
+    }
+}
+
+typedef struct { f32 angle, sx, sy, dx, sway; } AttackPose;
+
+static AttackPose ComputeAttackPose(PlantType type, u16 shootTimer)
+{
+    AttackPose p = { 0.0f, 1.0f, 1.0f, 0.0f, 1.0f };
+    const u16 cooldown = PeaCooldownFrames(type);
+    if (cooldown == 0 || shootTimer == 0 || shootTimer > cooldown)
+        return p;
+
+    const f32 kRecoilFrames  = 14.0f;
+    const f32 kWindUpFrames  = 10.0f;
+    const f32 sinceShot = (f32)(cooldown - shootTimer);
+
+    if (sinceShot < kRecoilFrames)
+    {
+        f32 e = 1.0f - sinceShot / kRecoilFrames;   /* 1 right after the shot -> 0 */
+        e = e * e;
+        p.angle = -7.0f * e;      /* lean back (counter-clockwise)  */
+        p.sx    = 1.0f - 0.12f * e; /* squash ...                   */
+        p.sy    = 1.0f + 0.10f * e; /* ... and stretch              */
+        p.dx    = -4.0f * e;      /* kick backwards                 */
+        p.sway  = 1.0f - e;       /* calm the idle sway while firing */
+    }
+    else if (shootTimer <= (u16)kWindUpFrames)
+    {
+        f32 a = 1.0f - (f32)shootTimer / kWindUpFrames; /* 0 -> 1 as the shot nears */
+        p.angle = 4.0f * a;       /* lean forward, getting ready */
+        p.sy    = 1.0f + 0.04f * a;
+    }
+    return p;
+}
+
 static void DrawPlantInCell(GRRLIB_texImg* tex, s16 cellX, s16 cellY, s16 cellW, s16 cellH,
-                            u32 frameCount, u32 phaseSeed, u32 fallbackColor)
+                            u32 frameCount, u32 phaseSeed, u32 fallbackColor,
+                            PlantType type, u16 shootTimer)
 {
     s16 pad = 6;
     if (tex && tex->data && tex->h > 0)
     {
-        /* Set (not just rely on load-time) since DrawTexturedBox -- used for
-         * the held-seed preview on this same texture -- resets the pivot to
-         * (0,0) later in the frame; each draw call owns the pivot it needs. */
         f32 footX = (f32)(cellX + cellW / 2);
         f32 footY = (f32)(cellY + cellH - pad);
         f32 phase = (f32)frameCount * 0.045f + (f32)(phaseSeed % 7) * 0.9f;
-        f32 sway  = sinf(phase) * 3.0f;
-        f32 bob   = fabsf(sinf(phase * 0.5f)) * 2.0f;
+        AttackPose pose = ComputeAttackPose(type, shootTimer);
+        f32 sway  = sinf(phase) * 3.0f * pose.sway;
+        f32 bob   = fabsf(sinf(phase * 0.5f)) * 2.0f * pose.sway;
         f32 targetH = (f32)(cellH - pad * 2);
         f32 s = targetH / (f32)tex->h;
-        DrawSpriteQuad(tex, footX, footY - bob, 0.5f, 1.0f, s, s, sway, 0xFFFFFFFF);
+        DrawSpriteQuad(tex, footX + pose.dx, footY - bob, 0.5f, 1.0f,
+                       s * pose.sx, s * pose.sy, sway + pose.angle, 0xFFFFFFFF);
     }
     else
     {
@@ -915,14 +967,16 @@ static void DrawLawnGrid(const GameContext* game)
             if (cell->plant != PLANT_NONE)
             {
                 DrawPlantInCell(s_assets.plantSprite[cell->plant], x, y, game->cellW, game->cellH,
-                                 game->frameCount, (u32)(row * 7 + col), PlantColor(cell->plant));
+                                 game->frameCount, (u32)(row * 7 + col), PlantColor(cell->plant),
+                                 cell->plant, cell->shootTimer);
                 DrawHealthBar((s16)(x + game->cellW / 2), y + 4,
                                game->cellW - 8, cell->health, Plant_MaxHealth(cell->plant));
             }
             if (cell->hasPumpkin)
             {
                 DrawPlantInCell(s_assets.plantSprite[PLANT_PUMPKIN], x, y, game->cellW, game->cellH,
-                                 game->frameCount, (u32)(row * 13 + col * 7), 0xCC8833FF);
+                                 game->frameCount, (u32)(row * 13 + col * 7), 0xCC8833FF,
+                                 PLANT_NONE, 0);
                 DrawHealthBar((s16)(x + game->cellW / 2), y + 2,
                                game->cellW - 8, cell->pumpkinHealth, Plant_MaxHealth(PLANT_PUMPKIN));
             }
@@ -1234,6 +1288,84 @@ void Render_DrawText(s16 x, s16 y, u32 color, unsigned int size, const char* tex
         GRRLIB_PrintfTTF(x, y, s_font, text, size, color);
     else if (s_bitmapFont)
         GRRLIB_Printf((f32)x, (f32)y, s_bitmapFont, color, BitmapFontZoomForSize(size), "%s", text);
+}
+
+int Render_TextWidth(unsigned int size, const char* text)
+{
+    if (!text) return 0;
+    if (s_font)
+        return (int)GRRLIB_WidthTTF(s_font, text, size);
+    return (int)(strlen(text) * size); /* bitmap font: 8px glyph * (size/8) zoom */
+}
+
+void Render_DrawTextCentered(s16 cx, s16 y, u32 color, unsigned int size, const char* text)
+{
+    if (!text) return;
+    Render_DrawText((s16)(cx - Render_TextWidth(size, text) / 2), y, color, size, text);
+}
+
+int Render_DrawTextWrapped(s16 x, s16 y, s16 maxWidth, s16 lineHeight, u32 color,
+                           unsigned int size, const char* text)
+{
+    if (!text) return 0;
+    char line[160];
+    line[0] = '\0';
+    int lines = 0;
+    const char* p = text;
+    while (*p)
+    {
+        while (*p == ' ') ++p;
+        const char* w = p;
+        while (*p && *p != ' ') ++p;
+        char word[64];
+        size_t wl = (size_t)(p - w);
+        if (wl == 0) break;
+        if (wl >= sizeof(word)) wl = sizeof(word) - 1;
+        memcpy(word, w, wl);
+        word[wl] = '\0';
+
+        char trial[224];
+        if (line[0])
+            snprintf(trial, sizeof(trial), "%s %s", line, word);
+        else
+            snprintf(trial, sizeof(trial), "%s", word);
+
+        if (line[0] && Render_TextWidth(size, trial) > maxWidth)
+        {
+            Render_DrawText(x, (s16)(y + lines * lineHeight), color, size, line);
+            ++lines;
+            snprintf(line, sizeof(line), "%s", word);
+        }
+        else
+        {
+            snprintf(line, sizeof(line), "%s", trial);
+        }
+    }
+    if (line[0])
+    {
+        Render_DrawText(x, (s16)(y + lines * lineHeight), color, size, line);
+        ++lines;
+    }
+    return lines;
+}
+
+void Render_DrawPlantPortrait(PlantType type, s16 cx, s16 bottomY, s16 targetH, s16 maxW,
+                              u32 frameCount)
+{
+    if (type < 0 || type >= PLANT_TYPE_COUNT) return;
+    GRRLIB_texImg* tex = s_assets.plantSprite[type];
+    if (!tex || !tex->data) tex = s_assets.seedIcon[type];
+    if (!tex || !tex->data || tex->h <= 0 || tex->w <= 0) return;
+    f32 s = (f32)targetH / (f32)tex->h;
+    if ((f32)tex->w * s > (f32)maxW) s = (f32)maxW / (f32)tex->w;
+    f32 t = (f32)frameCount * 0.05f;
+    DrawSpriteQuad(tex, (f32)cx, (f32)bottomY - fabsf(sinf(t * 0.5f)) * 3.0f, 0.5f, 1.0f,
+                   s, s, sinf(t) * 3.0f, 0xFFFFFFFF);
+}
+
+void Render_DrawReticle(const InputState* input)
+{
+    DrawReticle(input);
 }
 /** "Zombies incoming" gauge, bottom-center: fills up over the next
  *  ZOMBIE_SPAWN_INTERVAL_FRAMES-ish and resets when a zombie actually

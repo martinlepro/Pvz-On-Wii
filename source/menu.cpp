@@ -22,6 +22,25 @@ static GRRLIB_texImg* LoadButton(const char* name)
 }
 
 static GRRLIB_texImg* s_titleBg = NULL;
+static GRRLIB_texImg* s_newPlantBg = NULL;
+
+/* "New Plant!" screen layout (640x480 screen; the 800x600 background art is
+ * scaled by 0.8): title banner on top, plant in the picture window, name on
+ * the brown strip in the middle, description on the parchment, Continue
+ * further down, Title Screen in the top-right corner. */
+#define NP_CONTINUE_X   240
+#define NP_CONTINUE_Y   404
+#define NP_CONTINUE_W   160
+#define NP_CONTINUE_H   42
+#define NP_TITLE_X      542
+#define NP_TITLE_Y      10
+#define NP_TITLE_W      92
+#define NP_TITLE_H      30
+
+static bool PointInRect(f32 px, f32 py, int x, int y, int w, int h)
+{
+    return px >= (f32)x && px < (f32)(x + w) && py >= (f32)y && py < (f32)(y + h);
+}
 
 #define MAIN_ITEM_COUNT     5
 #define CONTROLS_ITEM_COUNT 7
@@ -83,6 +102,8 @@ void Menu_Init(MenuContext* menu)
     s_titleBg = Render_LoadTexture("assets/background/menu.png");
     if (!s_titleBg)
         s_titleBg = Render_LoadTexture("assets/background/every lawn day.png");
+
+    s_newPlantBg = Render_LoadTexture("assets/background/new_plant.png");
 }
 
 void Menu_Cleanup(MenuContext* menu)
@@ -98,6 +119,8 @@ void Menu_Cleanup(MenuContext* menu)
     menu->btnSurvival  = NULL;
     if (s_titleBg) GRRLIB_FreeTexture(s_titleBg);
     s_titleBg = NULL;
+    if (s_newPlantBg) GRRLIB_FreeTexture(s_newPlantBg);
+    s_newPlantBg = NULL;
 }
 
 bool Menu_IsOpen(const MenuContext* menu)
@@ -116,7 +139,7 @@ bool Menu_IsTitle(const MenuContext* menu)
 
 static bool Menu_IsResultScreen(const MenuContext* menu)
 {
-    return menu && (menu->screen == MENU_VICTORY || menu->screen == MENU_DEFEAT);
+    return menu && (menu->screen == MENU_NEW_PLANT || menu->screen == MENU_VICTORY || menu->screen == MENU_DEFEAT);
 }
 
 void Menu_Toggle(MenuContext* menu, Settings* settings)
@@ -427,6 +450,49 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
                     menu->screen = MENU_MAIN;
                     menu->cursorIndex = 1;
                 }
+            }
+            break;
+        }
+
+        case MENU_NEW_PLANT:
+        {
+            if (!game) { menu->screen = MENU_CLOSED; break; }
+            /* Two buttons: 0 = Continue, 1 = Title Screen. Any D-pad direction
+             * flips between them (UP/DOWN were already applied above). */
+            if (down & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT))
+                menu->cursorIndex = (menu->cursorIndex == 0) ? 1 : 0;
+            if (menu->cursorIndex < 0) menu->cursorIndex = 1;
+            if (menu->cursorIndex > 1) menu->cursorIndex = 0;
+
+            /* Pointing at a button selects it. */
+            if (menu->pointerValid)
+            {
+                if (PointInRect(menu->pointerX, menu->pointerY, NP_CONTINUE_X, NP_CONTINUE_Y, NP_CONTINUE_W, NP_CONTINUE_H))
+                    menu->cursorIndex = 0;
+                else if (PointInRect(menu->pointerX, menu->pointerY, NP_TITLE_X, NP_TITLE_Y, NP_TITLE_W, NP_TITLE_H))
+                    menu->cursorIndex = 1;
+            }
+
+            if (down & WPAD_BUTTON_A)
+            {
+                if (menu->cursorIndex == 1)
+                {
+                    menu->rewardPlant = PLANT_NONE;
+                    Game_Reset(game);
+                    Menu_ShowTitle(menu, settings);
+                }
+                else
+                {
+                    menu->rewardPlant = PLANT_NONE; /* shown once; the victory menu is next */
+                    menu->screen = MENU_VICTORY;
+                    menu->cursorIndex = 0;
+                }
+            }
+            else if (down & WPAD_BUTTON_B)
+            {
+                menu->rewardPlant = PLANT_NONE;
+                menu->screen = MENU_VICTORY;
+                menu->cursorIndex = 0;
             }
             break;
         }
@@ -842,6 +908,66 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
             DrawText(x, y, 0xFFFF00FF, kControlLabels[menu->rebindActionIndex]);
             y += 40;
             DrawText(x, y, 0xAAAAAAFF, "(HOME cannot be reassigned)");
+            break;
+        }
+
+        case MENU_NEW_PLANT:
+        {
+            /* Background art, full screen (explicit quad: see Render_DrawSpriteQuad notes) */
+            if (s_newPlantBg && s_newPlantBg->data)
+            {
+                guVector q[4] = {
+                    { 0.0f,              0.0f,               0.0f },
+                    { (f32)SCREEN_WIDTH, 0.0f,               0.0f },
+                    { (f32)SCREEN_WIDTH, (f32)SCREEN_HEIGHT, 0.0f },
+                    { 0.0f,              (f32)SCREEN_HEIGHT, 0.0f } };
+                GRRLIB_DrawImgQuad(q, s_newPlantBg, 0xFFFFFFFF);
+            }
+            else
+            {
+                GRRLIB_Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0xC98B4EFF, true);
+            }
+
+            const u32 kShadow = 0x2E1608FF;
+            const u32 kCream  = 0xFFF1C9FF;
+            const PlantType rp = menu->rewardPlant;
+
+            /* Title in the banner */
+            Render_DrawTextCentered(SCREEN_WIDTH / 2 + 2, 24, kShadow, 28, "New Plant!");
+            Render_DrawTextCentered(SCREEN_WIDTH / 2,     22, 0xFFE27AFF, 28, "New Plant!");
+
+            /* The plant, near the top, inside the picture window */
+            Render_DrawPlantPortrait(rp, SCREEN_WIDTH / 2, 216, 112, 130, menu->animFrame);
+
+            /* Name, centred on the brown strip in the middle of the card */
+            const char* name = Game_PlantName(rp);
+            Render_DrawTextCentered(SCREEN_WIDTH / 2 + 1, 245, kShadow, 22, name);
+            Render_DrawTextCentered(SCREEN_WIDTH / 2,     244, kCream,  22, name);
+
+            /* Description on the parchment below */
+            Render_DrawTextWrapped(214, 290, 212, 18, 0x4A2A10FF, 15, Plant_Description(rp));
+
+            /* Continue button, further down */
+            {
+                bool sel = (menu->cursorIndex == 0);
+                GRRLIB_Rectangle(NP_CONTINUE_X - 3, NP_CONTINUE_Y - 3, NP_CONTINUE_W + 6, NP_CONTINUE_H + 6,
+                                 sel ? 0xFFE27AFF : 0x2E1608FF, true);
+                GRRLIB_Rectangle(NP_CONTINUE_X, NP_CONTINUE_Y, NP_CONTINUE_W, NP_CONTINUE_H,
+                                 sel ? 0xB8662CFF : 0x8B4A23FF, true);
+                Render_DrawTextCentered(NP_CONTINUE_X + NP_CONTINUE_W / 2, NP_CONTINUE_Y + 10,
+                                        sel ? 0xFFFFFFFF : kCream, 22, "Continue");
+            }
+
+            /* Title Screen button, top-right corner */
+            {
+                bool sel = (menu->cursorIndex == 1);
+                GRRLIB_Rectangle(NP_TITLE_X - 2, NP_TITLE_Y - 2, NP_TITLE_W + 4, NP_TITLE_H + 4,
+                                 sel ? 0xFFE27AFF : 0x2E1608FF, true);
+                GRRLIB_Rectangle(NP_TITLE_X, NP_TITLE_Y, NP_TITLE_W, NP_TITLE_H,
+                                 sel ? 0xB8662CFF : 0x8B4A23FF, true);
+                Render_DrawTextCentered(NP_TITLE_X + NP_TITLE_W / 2, NP_TITLE_Y + 8,
+                                        sel ? 0xFFFFFFFF : kCream, 12, "Title Screen");
+            }
             break;
         }
 
