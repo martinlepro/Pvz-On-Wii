@@ -15,6 +15,9 @@
 #include <string.h>
 #include <math.h>
 
+/* mower.cpp */
+extern "C" void Mower_Update(GameContext* game);
+
 /* -------------------------------------------------------------------------- */
 /* Internal helpers                                                           */
 /* -------------------------------------------------------------------------- */
@@ -648,6 +651,7 @@ void Game_Update(GameContext* game, const InputState* input)
         Combat_Update(game);
         Particle_Update(game->particles);
 
+        Mower_Update(game); /* mowers fire before a zombie can reach the house */
         if (Zombie_UpdateAll(game))
         {
             game->state = GAME_STATE_GAME_OVER;

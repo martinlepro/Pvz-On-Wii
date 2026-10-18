@@ -272,7 +272,11 @@ static void SpawnDueZombiesForWave(GameContext* game, LevelWave* wave) {
     wave->nextSpawnTimer = wave->spawnIntervalTotal;
 }
 
+/* mower.cpp: one lawn mower / pool cleaner / roof cleaner per row */
+extern "C" void Mower_Reset(const GameContext* game);
+
 void Level_StartPlaying(GameContext* game) {
+    Mower_Reset(game);
     if (Survival_IsSurvival(game->currentLevelIndex)) {
         Survival_BuildWavePlan(game);
     } else if (Minigame_IsMinigame(game->currentLevelIndex)) {

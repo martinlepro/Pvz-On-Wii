@@ -30,6 +30,8 @@ void ProjFx_Free(void);
 void ProjFx_BeginFrame(const GameContext* game);
 bool ProjFx_DrawProjectile(const GameContext* game, int i, f32 sx, f32 sy);
 void ProjFx_DrawEffects(const GameContext* game);
+void Mower_Draw(const GameContext* game);
+void Mower_Free(void);
 }
 #include <grrlib.h>
 #include <stdio.h>
@@ -1275,6 +1277,7 @@ bool Render_Init(void)
 void Render_Shutdown(void)
 {
     ProjFx_Free();
+    Mower_Free();
     for (int i = 0; i < PLANT_TYPE_COUNT; ++i)
     {
         if (s_assets.seedIcon[i])    GRRLIB_FreeTexture(s_assets.seedIcon[i]);
@@ -1699,6 +1702,7 @@ void Render_Frame(const GameContext* game, const InputState* input)
     DrawWorldBackground(game);
     DrawLawnGrid(game);
     DrawZombies(game);
+    Mower_Draw(game);
     DrawProjectiles(game);
     DrawParticles(game);
     DrawFallingSuns(game);
