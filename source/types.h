@@ -87,8 +87,6 @@ typedef struct {
     PlantType plant;
     s16       health;
     u16       shootTimer;
-    u8        scanTimer;     /* frames until this plant next looks for a zombie in its row */
-    bool      zombieInRow;   /* result of the last once-per-second row scan                 */
     bool      hasLilyPad;
     bool      hasFlowerPot;
     bool      hasGrave;

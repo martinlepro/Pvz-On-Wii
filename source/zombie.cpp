@@ -529,8 +529,6 @@ static void ZombieEatPlant(GameContext* game, Zombie* z) {
         cell->health = 0;
         cell->plant = PLANT_NONE;
         cell->shootTimer = 0;
-        cell->scanTimer = 0;
-        cell->zombieInRow = false;
     } else {
         cell->health -= (s16)dmg;
     }

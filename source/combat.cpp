@@ -603,8 +603,25 @@ static void CheckSpikeweed(GameContext* game) {
 /* Public API                                                                 */
 /* -------------------------------------------------------------------------- */
 
+/* Once-per-second "is there a zombie in my row?" search, kept here (per grid
+ * cell) so no shared header has to change. s_scanPlant remembers which plant
+ * the cached result belongs to: a different plant in the cell means a new
+ * plant, which scans on its first tick. */
+static u8        s_scanTimer[GRID_ROWS][GRID_COLS];
+static bool      s_zombieInRow[GRID_ROWS][GRID_COLS];
+static PlantType s_scanPlant[GRID_ROWS][GRID_COLS];
+
+static void ResetScanState(void) {
+    memset(s_scanTimer, 0, sizeof(s_scanTimer));
+    memset(s_zombieInRow, 0, sizeof(s_zombieInRow));
+    for (int r = 0; r < GRID_ROWS; ++r)
+        for (int c = 0; c < GRID_COLS; ++c)
+            s_scanPlant[r][c] = PLANT_NONE;
+}
+
 void Combat_ResetAll(GameContext* game) {
     memset(game->projectiles, 0, sizeof(game->projectiles));
+    ResetScanState();
 }
 
 void Combat_Update(GameContext* game) {
@@ -619,19 +636,24 @@ void Combat_Update(GameContext* game) {
 
             /* Looking for a zombie in the row is done only once per second per
              * plant (not every frame); the shot decision below uses the result
-             * of the last scan. New plants scan on their first tick. */
-            if (cell->scanTimer > 0) {
-                cell->scanTimer--;
+             * of the last scan. A newly planted plant scans on its first tick. */
+            if (s_scanPlant[row][col] != cell->plant) {
+                s_scanPlant[row][col] = cell->plant;
+                s_scanTimer[row][col] = 0;
+                s_zombieInRow[row][col] = false;
+            }
+            if (s_scanTimer[row][col] > 0) {
+                s_scanTimer[row][col]--;
             } else {
-                cell->zombieInRow = Zombie_AnyActiveAheadInRow(game->zombies, (u8)row, (f32)col - 0.5f);
-                cell->scanTimer = (u8)(TARGET_FPS - 1);
+                s_zombieInRow[row][col] = Zombie_AnyActiveAheadInRow(game->zombies, (u8)row, (f32)col - 0.5f);
+                s_scanTimer[row][col] = (u8)(TARGET_FPS - 1);
             }
 
             if (cell->shootTimer > 0) {
                 cell->shootTimer--;
                 continue;
             }
-            if (!cell->zombieInRow)
+            if (!s_zombieInRow[row][col])
                 continue;
 
             if (FireShooter(game, row, col, cell->plant)) {
