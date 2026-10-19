@@ -22,6 +22,12 @@ void ItemAward_Render(unsigned char levelIndex, bool pointerValid, f32 px, f32 p
 }
 /* Level index the award screen is currently for (HandleInput sets it; Menu_Render only gets menu+settings). */
 static int s_awardLevel = -1;
+/* screens.cpp (title / mini-game art) */
+extern "C" {
+bool Screens_DrawTitleBg(void);
+bool Screens_DrawTitleLogo(void);
+bool Screens_DrawMinigameIcon(int mg, int x, int y, f32 scale);
+}
 
 static GRRLIB_texImg* LoadButton(const char* name)
 {
@@ -606,7 +612,13 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
         menu->screen == MENU_SURVIVAL_SELECT)
     {
         /* Full screen title background */
-        if (s_titleBg && s_titleBg->data)
+        const bool titleArt = Screens_DrawTitleBg();
+        if (titleArt)
+        {
+            /* soft dark wash so buttons and text stay readable over the busy art */
+            GRRLIB_Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x00000050, true);
+        }
+        else if (s_titleBg && s_titleBg->data)
         {
             /* Explicit full-screen quad: GRRLIB_DrawImg() scales around the image
              * centre, so a scaled draw at (0,0) landed shifted off-screen. */
@@ -623,8 +635,8 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
             GRRLIB_Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, bgColor, true);
         }
 
-        /* Decorative grass lines */
-        for (int i = 0; i < 20; i++)
+        /* Decorative grass lines (only for the placeholder look) */
+        for (int i = 0; !titleArt && i < 20; i++)
         {
             s16 gx = (s16)(rand() % SCREEN_WIDTH);
             s16 gy = (s16)(SCREEN_HEIGHT - 40 - rand() % 60);
@@ -637,9 +649,11 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
         {
             case MENU_TITLE:
             {
-                DrawTextLarge(SCREEN_WIDTH / 2 - 180, 30, 0xCCFF66FF, Locale_Str(STR_TITLE));
-
-                GRRLIB_Rectangle(0, 100, SCREEN_WIDTH, 2, 0x88AA44CC, true);
+                if (!Screens_DrawTitleLogo())
+                {
+                    DrawTextLarge(SCREEN_WIDTH / 2 - 180, 30, 0xCCFF66FF, Locale_Str(STR_TITLE));
+                    GRRLIB_Rectangle(0, 100, SCREEN_WIDTH, 2, 0x88AA44CC, true);
+                }
 
                 /* Layout: 2 columns of buttons, then Options/Exit as text */
                 s16 leftX  = SCREEN_WIDTH / 2 - 210;
@@ -800,7 +814,9 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
                     s16 by = y - 4;
                     if (sel)
                         GRRLIB_Rectangle(bx - 12, by, 330, MENU_ITEM_H, 0x4444AAFF, true);
-                    DrawText(bx + 8, y, sel ? 0xFFFF00FF : 0xFFFFFFFF, items[i]);
+                     /* mini-game icon (rows 0..4; "Back" has none) */
+                     bool hasIcon = (i < 5) && Screens_DrawMinigameIcon(i, bx - 8, by + 1, 0.45f);
+                     DrawText(bx + (hasIcon ? 34 : 8), y, sel ? 0xFFFF00FF : 0xFFFFFFFF, items[i]);
                     y += MENU_ITEM_H + 8;
                 }
                 break;

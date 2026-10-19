@@ -41,6 +41,11 @@ bool Hud_DrawPacketFrame(int slotX, int slotY);
 void Hud_DrawCooldown(int slotX, int slotY, int w, int h, int plantType);
 void Hud_DrawExtras(const GameContext* game, const InputState* input);
 void Hud_DrawHeldShovel(const GameContext* game, const InputState* input);
+/* screens.cpp */
+void Screens_Load(void);
+void Screens_Free(void);
+bool Screens_DrawBackground(const GameContext* game, GRRLIB_texImg* worldBg);
+bool Screens_DrawGameOver(const GameContext* game);
 }
 #include <grrlib.h>
 #include <stdio.h>
@@ -781,6 +786,8 @@ static void DrawZombies(const GameContext* game)
 static void DrawWorldBackground(const GameContext* game)
 {
     World world = Level_GetWorld(game->currentLevelIndex);
+    if (Screens_DrawBackground(game, s_assets.worldBg[world]))
+        return; /* 5-10 final-fight roof, 1-1 sod-roll intro */
     u32 tint = Color4ToU32(Level_GetWorldTint(world));
     DrawTexturedBox(s_assets.worldBg[world], 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0xFFFFFFFF, tint, game->frameCount);
 }
@@ -828,8 +835,11 @@ static void DrawLevelBanner(const GameContext* game)
     }
     else if (game->state == GAME_STATE_GAME_OVER)
     {
-        DrawRect(SCREEN_WIDTH / 2 - 140, SCREEN_HEIGHT / 2 - 30, 280, 60, 0x000000B0);
-        DrawLabel(SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 8, 0xFF4444FF, 20, "The zombies got in...");
+        if (!Screens_DrawGameOver(game))   /* art missing: old text box */
+        {
+            DrawRect(SCREEN_WIDTH / 2 - 140, SCREEN_HEIGHT / 2 - 30, 280, 60, 0x000000B0);
+            DrawLabel(SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 8, 0xFF4444FF, 20, "The zombies got in...");
+        }
     }
     else if (game->showHugeWaveMessage)
     {
@@ -1213,7 +1223,7 @@ bool Render_Init(void)
     if (!s_bitmapFont && !s_font)
         s_font = NULL;
     /* Loading screen: one tick per loaded group, bar + sprouts grow with it. */
-    const int kLoadSteps = PLANT_TYPE_COUNT + 1 + WORLD_COUNT + ZOMBIE_TYPE_COUNT * 2 + 2;
+    const int kLoadSteps = PLANT_TYPE_COUNT + 1 + WORLD_COUNT + ZOMBIE_TYPE_COUNT * 2 + 3;
     int loadDone = 0;
     Loading_Set(0.0f);
     /* Optional PNGs -- each load gracefully returns NULL if the file isn't
@@ -1286,6 +1296,8 @@ bool Render_Init(void)
     }
     Hud_Load();
     Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
+    Screens_Load();
+    Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     ProjFx_Load();
     Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     Loading_Set(1.0f);
@@ -1297,6 +1309,7 @@ void Render_Shutdown(void)
     ProjFx_Free();
     Mower_Free();
     Hud_Free();
+    Screens_Free();
     for (int i = 0; i < PLANT_TYPE_COUNT; ++i)
     {
         if (s_assets.seedIcon[i])    GRRLIB_FreeTexture(s_assets.seedIcon[i]);
