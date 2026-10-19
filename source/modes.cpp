@@ -24,7 +24,7 @@
  *   - Clear every vase and kill every zombie to win; a zombie reaching the house loses.
  *   - Progress (highest level cleared) is saved in sd:/apps/pvz_wii/vase.cfg and
  *     each win pays COINS_PER_WIN coins (if hud.cpp's Coins_Add is present).
- * Zen Garden is listed in the menu as "coming soon" (step 6b).
+ * Zen Garden (zen.cpp) is opened from the same menu.
  *
  * Assets (relative to assets/): vasebreaker/vase_{mystery,plant,zombie}[_inside].png,
  * vasebreaker/shard_{mystery,plant,zombie}_1..9.png, background/every lawn day.png,
@@ -48,6 +48,10 @@ void Render_DrawText(s16 x, s16 y, u32 color, unsigned int size, const char* tex
 void Render_DrawTextCentered(s16 cx, s16 y, u32 color, unsigned int size, const char* text);
 void Render_DrawPlantPortrait(PlantType type, s16 cx, s16 bottomY, s16 targetH, s16 maxW, u32 frameCount);
 void Coins_Add(u32 n);   /* hud.cpp (step 4) */
+bool Zen_Open(void);     /* zen.cpp */
+bool Zen_Update(const InputState* in, unsigned wpadDown);
+void Zen_Render(const InputState* in);
+void Zen_Free(void);
 }
 
 #ifndef SETTINGS_DIR
@@ -60,7 +64,7 @@ void Coins_Add(u32 n);   /* hud.cpp (step 4) */
 /* ------------------------------------------------------------------ */
 /* Shared helpers                                                       */
 /* ------------------------------------------------------------------ */
-enum Screen { S_NONE, S_MENU, S_SELECT, S_PLAY };
+enum Screen { S_NONE, S_MENU, S_SELECT, S_PLAY, S_ZEN };
 static Screen s_screen = S_NONE;
 static u32    s_frame  = 0;
 static int    s_cursor = 0;
@@ -114,6 +118,7 @@ static void LoadAssets(void)
 
 extern "C" void Modes_Free(void)
 {
+    Zen_Free();
     GRRLIB_texImg** one[] = { &s_bg, &s_bar, &s_seedFrame, &s_pea, &s_snow };
     for (unsigned i = 0; i < sizeof(one) / sizeof(one[0]); ++i)
         if (*one[i]) { GRRLIB_FreeTexture(*one[i]); *one[i] = NULL; }
@@ -428,7 +433,7 @@ static void ClickPlay(const InputState* in)
 /* ------------------------------------------------------------------ */
 /* Menus                                                               */
 /* ------------------------------------------------------------------ */
-static const char* kMenu[3] = { "Vasebreaker", "Zen Garden  (coming soon)", "Back" };
+static const char* kMenu[3] = { "Vasebreaker", "Zen Garden", "Back" };
 
 static int MenuHit(const InputState* in, int n, int x0, int y0, int w, int h, int gap)
 {
@@ -450,6 +455,11 @@ extern "C" void Modes_Update(const InputState* in, unsigned wpadDown)
     s_frame++;
     const bool home = (wpadDown & 0x0080) != 0;   /* WPAD_BUTTON_HOME */
     const bool click = in->placePressed;
+    if (s_screen == S_ZEN)
+    {   /* Zen handles HOME itself (puts a carried plant back, saves) */
+        if (Zen_Update(in, wpadDown)) { s_screen = S_MENU; s_cursor = 1; }
+        return;
+    }
     if (home) { s_screen = (s_screen == S_PLAY) ? S_SELECT : S_NONE; if (s_screen == S_SELECT) s_cursor = s_level; return; }
 
     if (s_screen == S_MENU)
@@ -460,6 +470,7 @@ extern "C" void Modes_Update(const InputState* in, unsigned wpadDown)
         if (click)
         {
             if (s_cursor == 0) { s_screen = S_SELECT; s_cursor = (s_cleared < VASE_LEVELS) ? s_cleared : VASE_LEVELS - 1; }
+            else if (s_cursor == 1) { if (Zen_Open()) s_screen = S_ZEN; }
             else if (s_cursor == 2) s_screen = S_NONE;
         }
     }
@@ -638,12 +649,13 @@ extern "C" void Modes_Render(const InputState* in)
 {
     GRRLIB_FillScreen(0x000000FF);
     if (s_screen == S_PLAY) { DrawPlay(in); return; }
+    if (s_screen == S_ZEN)  { Zen_Render(in); return; }
     DrawBackdrop();
     GRRLIB_Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x00000070, true);
     if (s_screen == S_MENU)
     {
         Render_DrawTextCentered(320, 90, 0xFFE27AFF, 32, "Puzzle");
-        for (int i = 0; i < 3; ++i) Button(170, 170 + i * 58, 300, 44, s_cursor == i, i != 1, kMenu[i]);
+        for (int i = 0; i < 3; ++i) Button(170, 170 + i * 58, 300, 44, s_cursor == i, true, kMenu[i]);
     }
     else if (s_screen == S_SELECT)
     {
