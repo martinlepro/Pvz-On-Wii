@@ -42,6 +42,7 @@ void Hud_DrawCooldown(int slotX, int slotY, int w, int h, int plantType);
 void Hud_DrawExtras(const GameContext* game, const InputState* input);
 void Hud_DrawHeldShovel(const GameContext* game, const InputState* input);
 /* screens.cpp */
+void Modes_Free(void);   /* modes.cpp */
 void Screens_Load(void);
 void Screens_Free(void);
 bool Screens_DrawBackground(const GameContext* game, GRRLIB_texImg* worldBg);
@@ -1310,6 +1311,7 @@ void Render_Shutdown(void)
     Mower_Free();
     Hud_Free();
     Screens_Free();
+    Modes_Free();
     for (int i = 0; i < PLANT_TYPE_COUNT; ++i)
     {
         if (s_assets.seedIcon[i])    GRRLIB_FreeTexture(s_assets.seedIcon[i]);

@@ -188,6 +188,13 @@ static void FixWorkingDirectory(int argc, char** argv)
     /* Still nothing: leave the working directory as the loader set it. */
 }
 
+/* modes.cpp: Puzzle menu + Vasebreaker */
+extern "C" {
+bool Modes_Active(void);
+void Modes_Update(const InputState* in, unsigned wpadDown);
+void Modes_Render(const InputState* in);
+}
+
 int main(int argc, char** argv)
 {
     WPAD_Init();
@@ -238,7 +245,12 @@ int main(int argc, char** argv)
             }
         }
 
-        if (Menu_IsTitle(&menu))
+        if (Modes_Active())
+        {
+            /* Puzzle menu / Vasebreaker own the whole screen and all input */
+            Modes_Update(&input, WPAD_ButtonsDown(0));
+        }
+        else if (Menu_IsTitle(&menu))
         {
             if (input.menuTogglePressed)
             {
@@ -296,10 +308,18 @@ int main(int argc, char** argv)
 
         Audio_Update();
 
-        Render_Frame(&game, &input);
-        Menu_Render(&menu, &settings);
-        if (menu.screen == MENU_NEW_PLANT)
-            Render_DrawReticle(&input); /* the full-screen art would otherwise cover the pointer */
+        if (Modes_Active())
+        {
+            Modes_Render(&input);
+            Render_DrawReticle(&input);
+        }
+        else
+        {
+            Render_Frame(&game, &input);
+            Menu_Render(&menu, &settings);
+            if (menu.screen == MENU_NEW_PLANT)
+                Render_DrawReticle(&input); /* the full-screen art would otherwise cover the pointer */
+        }
         Render_Present();
     }
 

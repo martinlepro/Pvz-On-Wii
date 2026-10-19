@@ -24,6 +24,7 @@ void ItemAward_Render(unsigned char levelIndex, bool pointerValid, f32 px, f32 p
 static int s_awardLevel = -1;
 /* screens.cpp (title / mini-game art) */
 extern "C" {
+void Modes_Open(void);   /* modes.cpp: Puzzle menu / Vasebreaker */
 bool Screens_DrawTitleBg(void);
 bool Screens_DrawTitleLogo(void);
 bool Screens_DrawMinigameIcon(int mg, int x, int y, f32 scale);
@@ -245,10 +246,8 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
                         menu->screen = MENU_MINIGAME_SELECT;
                         menu->cursorIndex = 0;
                         break;
-                    case 2: /* Puzzle */
-                        /* placeholder - not yet implemented */
-                        menu->screen = MENU_MINIGAME_SELECT;
-                        menu->cursorIndex = 0;
+                    case 2: /* Puzzle: Vasebreaker (modes.cpp takes over the screen) */
+                        Modes_Open();
                         break;
                     case 3: /* Survival */
                         menu->screen = MENU_SURVIVAL_SELECT;
