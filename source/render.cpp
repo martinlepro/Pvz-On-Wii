@@ -32,6 +32,15 @@ bool ProjFx_DrawProjectile(const GameContext* game, int i, f32 sx, f32 sy);
 void ProjFx_DrawEffects(const GameContext* game);
 void Mower_Draw(const GameContext* game);
 void Mower_Free(void);
+/* hud.cpp */
+void Hud_Load(void);
+void Hud_Free(void);
+bool Hud_DrawBarBg(const GameContext* game);
+void Hud_DrawSunCount(unsigned sun);
+bool Hud_DrawPacketFrame(int slotX, int slotY);
+void Hud_DrawCooldown(int slotX, int slotY, int w, int h, int plantType);
+void Hud_DrawExtras(const GameContext* game, const InputState* input);
+void Hud_DrawHeldShovel(const GameContext* game, const InputState* input);
 }
 #include <grrlib.h>
 #include <stdio.h>
@@ -836,7 +845,8 @@ static void DrawLevelBanner(const GameContext* game)
 /* -------------------------------------------------------------------------- */
 static void DrawSeedBar(const GameContext* game, const InputState* input)
 {
-    DrawRect(0, 0, SCREEN_WIDTH, SEED_BAR_HEIGHT, COL_SEED_BAR);
+    const bool hudBg = Hud_DrawBarBg(game);
+    if (!hudBg) DrawRect(0, 0, SCREEN_WIDTH, SEED_BAR_HEIGHT, COL_SEED_BAR);
     s16 slotY = (SEED_BAR_HEIGHT - SEED_SLOT_HEIGHT) / 2;
     /* Sun counter, left-aligned in the seed bar. Reserved as its own fixed
      * width panel -- the count can be up to 4 digits (capped at 9999), and
@@ -845,8 +855,11 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
      * seed slot. Give it real breathing room before the seed tray starts. */
     s16 sunX = SEED_BAR_PADDING + 4;
     s16 sunY = (SEED_BAR_HEIGHT - 40) / 2;
-    DrawTexturedBox(s_assets.sunIcon, sunX, sunY, 40, 40, 0xFFFFFFFF, COL_SUN_TEXT, game->frameCount);
-    if (s_bitmapFont || s_font)
+    if (hudBg)
+        Hud_DrawSunCount((unsigned)game->sun); /* disc is part of the bar art */
+    else
+        DrawTexturedBox(s_assets.sunIcon, sunX, sunY, 40, 40, 0xFFFFFFFF, COL_SUN_TEXT, game->frameCount);
+    if (!hudBg && (s_bitmapFont || s_font))
     {
         char sunBuf[8];
         snprintf(sunBuf, sizeof(sunBuf), "%u", (unsigned)game->sun);
@@ -862,7 +875,8 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
         if (type < 0) continue;
         bool isSelected = (i == game->selectedSlot);
         bool isHovered  = (i == input->hoveredSeedSlot);
-        DrawRect(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, 0x1A1A1AFF);
+        const bool framed = Hud_DrawPacketFrame(slotX, slotY);
+        if (!framed) DrawRect(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, 0x1A1A1AFF);
         /* Only the currently-selected packet gets the animated dashed
          * border; a hover gets a plain thin outline as a lighter cue, and
          * an idle slot gets no border decoration at all. */
@@ -870,9 +884,9 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
             DrawDashedBreathingBorder(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, COL_SLOT_SEL, 10, game->frameCount);
         else if (isHovered)
             DrawRectOutline(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, COL_SLOT_HOVER, 2);
-        const s16 iconSize = 48;
+        const s16 iconSize = framed ? 36 : 48;
         s16 iconX = slotX + (SEED_SLOT_WIDTH - iconSize) / 2;
-        s16 iconY = slotY + 3;
+        s16 iconY = slotY + (framed ? 6 : 3);
         DrawTexturedBox(s_assets.seedIcon[type], iconX, iconY, iconSize, iconSize, 0xFFFFFFFF, PlantColor(type), game->frameCount);
         u16 cost = Game_PlantCost(type);
         bool affordable = game->sun >= cost;
@@ -884,13 +898,15 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
          * Lighter overlay reads as "dimmed" instead of "gone". */
         if (!affordable)
             DrawRect(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, 0x00000050);
+        Hud_DrawCooldown(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, (int)type);
         if (s_bitmapFont || s_font)
         {
             char costBuf[8];
             snprintf(costBuf, sizeof(costBuf), "%u", cost);
-            DrawLabel(slotX + 4, slotY + SEED_SLOT_HEIGHT - 16, COL_SUN_TEXT, 12, costBuf);
+            DrawLabel(slotX + (framed ? 6 : 4), slotY + SEED_SLOT_HEIGHT - (framed ? 14 : 16), framed ? 0x3A2A10FF : COL_SUN_TEXT, 12, costBuf);
         }
     }
+    Hud_DrawExtras(game, input);
 }
 /** Water columns: In Pool/Fog the middle rows (2 & 3, 0-indexed) are water. */
 #define WATER_ROW_START 2
@@ -1197,7 +1213,7 @@ bool Render_Init(void)
     if (!s_bitmapFont && !s_font)
         s_font = NULL;
     /* Loading screen: one tick per loaded group, bar + sprouts grow with it. */
-    const int kLoadSteps = PLANT_TYPE_COUNT + 1 + WORLD_COUNT + ZOMBIE_TYPE_COUNT * 2 + 1;
+    const int kLoadSteps = PLANT_TYPE_COUNT + 1 + WORLD_COUNT + ZOMBIE_TYPE_COUNT * 2 + 2;
     int loadDone = 0;
     Loading_Set(0.0f);
     /* Optional PNGs -- each load gracefully returns NULL if the file isn't
@@ -1268,6 +1284,8 @@ bool Render_Init(void)
         s_assets.zombieFull[i] = Render_LoadTexture(path);
         Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     }
+    Hud_Load();
+    Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     ProjFx_Load();
     Loading_Set((f32)(++loadDone) / (f32)kLoadSteps);
     Loading_Set(1.0f);
@@ -1278,6 +1296,7 @@ void Render_Shutdown(void)
 {
     ProjFx_Free();
     Mower_Free();
+    Hud_Free();
     for (int i = 0; i < PLANT_TYPE_COUNT; ++i)
     {
         if (s_assets.seedIcon[i])    GRRLIB_FreeTexture(s_assets.seedIcon[i]);
@@ -1711,6 +1730,7 @@ void Render_Frame(const GameContext* game, const InputState* input)
         DrawTileCursor(game);
     DrawHeldSeed(game, input);
     DrawSeedBar(game, input);
+    Hud_DrawHeldShovel(game, input);
     DrawHud(game, input);
     DrawLevelBanner(game);
     DrawLevelProgressBar(game);

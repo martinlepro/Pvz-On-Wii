@@ -17,6 +17,8 @@
 
 /* mower.cpp */
 extern "C" void Mower_Update(GameContext* game);
+extern "C" void Hud_Update(GameContext* game);                          /* hud.cpp */
+extern "C" bool Hud_HandleInput(GameContext* game, const InputState* input);
 
 /* -------------------------------------------------------------------------- */
 /* Internal helpers                                                           */
@@ -524,6 +526,10 @@ void Game_HandleInput(GameContext* game, const InputState* input)
     if (game->state != GAME_STATE_PLAYING)
         return;
 
+    /* Shovel tool + seed recharge lock: may consume this frame's click. */
+    if (Hud_HandleInput(game, input))
+        return;
+
     /* Hovering a seed-bar slot with the IR cursor updates the selection
      * (used for the highlight, and as the fallback-path grab target). */
     if (input->hoveredSeedSlot >= 0 && input->hoveredSeedSlot < game->selectedCount)
@@ -651,6 +657,7 @@ void Game_Update(GameContext* game, const InputState* input)
         Combat_Update(game);
         Particle_Update(game->particles);
 
+        Hud_Update(game);   /* seed recharge bookkeeping */
         Mower_Update(game); /* mowers fire before a zombie can reach the house */
         if (Zombie_UpdateAll(game))
         {
