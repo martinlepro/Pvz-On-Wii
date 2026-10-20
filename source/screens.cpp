@@ -24,6 +24,7 @@
 #include "game.h"
 #include "constants.h"
 #include "level.h"
+#include "backdrop.h"
 #include <grrlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -135,7 +136,11 @@ static u32       s_wipeStart = 0;
 #define SOD_WIPE_FRAMES 150
 
 /** worldBg = the world's normal background texture (owned by render.cpp).
- *  Returns true if it drew the whole background itself. */
+ *  Returns true if it drew the whole background itself.
+ *
+ *  Nothing here stretches the art: every picture goes through the lawn camera
+ *  (backdrop.cpp), so it keeps its proportions and the lawn lanes keep their
+ *  height. */
 extern "C" bool Screens_DrawBackground(const GameContext* game, GRRLIB_texImg* worldBg)
 {
     if (!game) return false;
@@ -152,30 +157,39 @@ extern "C" bool Screens_DrawBackground(const GameContext* game, GRRLIB_texImg* w
     /* 5-10 (Dr. Zomboss): final-fight roof. Adventure levels are 0..49. */
     if (lvl == TOTAL_LEVELS - 1 && Ok(s_finalFight))
     {
-        Draw(s_finalFight, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0xFFFFFFFF);
+        const BackdropLayout L = Backdrop_Make(BD_ROOF, s_finalFight);
+        Backdrop_Draw(s_finalFight, &L, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
         return true;
     }
 
-    /* 1-1: the lawn "rolls out" over the bare yard in the first ~2.5 s. */
-    if (lvl == 0 && game->state == GAME_STATE_PLAYING && Ok(s_noLawn) && Ok(worldBg))
+    /* Early Day levels play on only 1 or 3 lanes (1-1 .. 1-3): the yard is the
+     * bare-dirt picture, and the sod is laid only on the lanes in play -- for
+     * 1-1 it "rolls out" left to right over the first ~2.5 s. */
+    if (Level_GetWorld(lvl) == WORLD_DAY && game->rowCount > 0 && game->rowCount < 5 &&
+        Ok(s_noLawn) && Ok(worldBg))
     {
-        f32 t = (f32)(game->frameCount - s_wipeStart) / (f32)SOD_WIPE_FRAMES;
-        if (game->frameCount >= s_wipeStart && t < 1.0f)
+        const BackdropLayout L = Backdrop_Make(BD_DAY, worldBg);
+        Backdrop_Draw(s_noLawn, &L, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+        f32 t = 1.0f;
+        if (lvl == 0 && game->state == GAME_STATE_PLAYING && game->frameCount >= s_wipeStart)
         {
-            Draw(s_noLawn, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0xFFFFFFFF);
-            u32 w = (u32)(SCREEN_WIDTH * t);
-            if (w > 0)
-            {
-                GRRLIB_ClipDrawing(0, 0, w, SCREEN_HEIGHT);
-                Draw(worldBg, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0xFFFFFFFF);
-                GRRLIB_ClipReset();
-            }
-            /* the rolled-up sod at the leading edge */
-            f32 ex = (f32)w;
-            GRRLIB_Rectangle(ex - 6, SEED_BAR_HEIGHT, 12, SCREEN_HEIGHT - SEED_BAR_HEIGHT, 0x2E5A16FF, true);
-            GRRLIB_Rectangle(ex - 3, SEED_BAR_HEIGHT, 4, SCREEN_HEIGHT - SEED_BAR_HEIGHT, 0x5FA02FFF, true);
-            return true;
+            t = (f32)(game->frameCount - s_wipeStart) / (f32)SOD_WIPE_FRAMES;
+            if (t > 1.0f) t = 1.0f;
         }
+        const int gx = game->lawnX, gy = game->lawnY;
+        const int gw = game->cellW * GRID_COLS, gh = game->cellH * game->rowCount;
+        const int w  = (int)(gw * t);
+        if (w > 0)
+            Backdrop_Draw(worldBg, &L, gx, gy, w, gh);
+        if (t < 1.0f)
+        {
+            /* the rolled-up sod at the leading edge */
+            f32 ex = (f32)(gx + w);
+            GRRLIB_Rectangle(ex - 6, (f32)gy, 12, (f32)gh, 0x2E5A16FF, true);
+            GRRLIB_Rectangle(ex - 3, (f32)gy, 4, (f32)gh, 0x5FA02FFF, true);
+        }
+        return true;
     }
     return false;
 }

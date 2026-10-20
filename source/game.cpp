@@ -9,6 +9,7 @@
 #include "minigame.h"
 #include "particle.h"
 #include "survival.h"
+#include "backdrop.h"
 
 #include <ogc/lwp_watchdog.h>
 #include <stdlib.h>
@@ -312,6 +313,18 @@ static void UpdateSunDrops(GameContext* game, const InputState* input)
     }
 }
 
+/* Sets lawnX/lawnY/cellW/cellH for the current level from its background art. */
+static void ApplyBackdropGeometry(GameContext* game)
+{
+    const World world = Level_GetWorld((u8)game->currentLevelIndex);
+    const BackdropLayout L = Backdrop_Make(Backdrop_KindForWorld((int)world), NULL);
+    const u8 rows = (game->rowCount > 0 && game->rowCount <= GRID_ROWS) ? (u8)game->rowCount : L.fullRows;
+    game->cellW = L.cellW;
+    game->cellH = L.cellH;
+    game->lawnX = L.lawnX;
+    game->lawnY = Backdrop_LawnY(&L, rows);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -323,6 +336,8 @@ void Game_Init(GameContext* game)
 
     memset(game, 0, sizeof(GameContext));
 
+    /* Placeholder geometry (title screen); Game_Reset() recomputes it for the
+     * level's own background art -- see ApplyBackdropGeometry(). */
     game->lawnX = LAWN_MARGIN_X;
     game->lawnY = LAWN_MARGIN_Y;
     game->cellW = CELL_WIDTH_DEFAULT;
@@ -382,15 +397,12 @@ void Game_Reset(GameContext* game)
     game->hugeWaveDelayTimer = 0;
     game->levelProgressDisplayed = 0.0f;
 
-    /* Vertically center the lawn when this level uses fewer than the full
-     * GRID_ROWS rows (e.g. the very first level, which is a single row) --
-     * cellH is always sized for GRID_ROWS, so any unused rows just become
-     * blank margin split evenly above and below the active grid instead of
-     * leaving it pinned to the top. */
-    {
-        u8 visibleRows = (game->rowCount > 0 && game->rowCount <= GRID_ROWS) ? game->rowCount : GRID_ROWS;
-        game->lawnY = LAWN_MARGIN_Y + (s16)(((GRID_ROWS - visibleRows) * game->cellH) / 2);
-    }
+    /* Lawn geometry comes from the level's background art (see backdrop.h):
+     * the lane height is always CELL_HEIGHT_DEFAULT, the column width matches
+     * the painted cells, the lawn is centred on the screen, and a level that
+     * uses fewer lanes than the art paints (e.g. 1-1's single lane) sits in
+     * the middle of the painted lawn rather than pinned to the top. */
+    ApplyBackdropGeometry(game);
 
     memset(game->suns, 0, sizeof(game->suns));
     game->sunSpawnTimer = SUN_SPAWN_INTERVAL_FRAMES / 2;

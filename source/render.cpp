@@ -19,6 +19,7 @@
 #include "bitmap_font.h"
 #include "discfst.h"
 #include "progress_art.h"
+#include "backdrop.h"
 
 /* loadscreen.cpp: small loading screen shown during Render_Init() */
 void Loading_Set(float progress);
@@ -781,16 +782,34 @@ static void DrawZombies(const GameContext* game)
         DrawZombieHealth(game, z);
     }
 }
-/** World-themed backdrop: assets/backgrounds/<world>.png if present, else a
+/* True when the current frame's background is real artwork (so the lawn's own
+ * painted checkerboard shows through and the flat placeholder lawn is skipped). */
+static bool s_bgArt = false;
+/** World-themed backdrop: assets/background/<world>.png if present, else a
  *  flat tint (see Level_GetWorldTint) -- Day/Pool/Roof read as daytime,
- *  Night/Fog as night, matching the original's world progression. */
+ *  Night/Fog as night, matching the original's world progression.
+ *
+ *  The art is NOT stretched to the screen: it is placed by the lawn "camera"
+ *  in backdrop.cpp (uniform scale, lane height fixed, centred on the lawn). */
 static void DrawWorldBackground(const GameContext* game)
 {
     World world = Level_GetWorld(game->currentLevelIndex);
     if (Screens_DrawBackground(game, s_assets.worldBg[world]))
-        return; /* 5-10 final-fight roof, 1-1 sod-roll intro */
+    {
+        s_bgArt = true;
+        return; /* 5-10 final-fight roof, 1-1 sod-roll intro / bare rows */
+    }
+    GRRLIB_texImg* tex = s_assets.worldBg[world];
+    if (tex && tex->data)
+    {
+        const BackdropLayout L = Backdrop_Make(Backdrop_KindForWorld((int)world), tex);
+        Backdrop_Draw(tex, &L, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        s_bgArt = true;
+        return;
+    }
+    s_bgArt = false;
     u32 tint = Color4ToU32(Level_GetWorldTint(world));
-    DrawTexturedBox(s_assets.worldBg[world], 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0xFFFFFFFF, tint, game->frameCount);
+    DrawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, tint);
 }
 static void DrawLevelBanner(const GameContext* game)
 {
@@ -998,18 +1017,52 @@ static void DrawCellDecorations(const GameContext* game, s8 row, s8 col, s16 x, 
         DrawRect(padX + 2, padY + 2, padW - 4, padH - 4, 0x27AE60FF);
     }
 }
+/** Pool / fog water when real background art is in use: fills the art's pool
+ *  basin (which ships as a blank placeholder) and animates the ripples inside
+ *  it, instead of covering the lanes with flat blue squares. */
+static void DrawArtWater(const GameContext* game)
+{
+    if (!(game->worldFlags & WORLD_FLAG_HAS_WATER))
+        return;
+    World world = Level_GetWorld(game->currentLevelIndex);
+    const BackdropLayout L = Backdrop_Make(Backdrop_KindForWorld((int)world), s_assets.worldBg[world]);
+    int wx, wy, ww, wh;
+    if (!Backdrop_GetWaterRect(&L, &wx, &wy, &ww, &wh))
+    {
+        /* This world's art has no pool basin: use the plain per-cell water. */
+        for (s8 row = WATER_ROW_START; row <= WATER_ROW_END && row < (s8)game->rowCount; ++row)
+            for (s8 col = 0; col < GRID_COLS; ++col)
+                DrawCellBackground(game, row, col, game->lawnX + col * game->cellW,
+                                   game->lawnY + row * game->cellH);
+        return;
+    }
+    /* Pool: bright daytime water. Fog: the art's own (night-tinted) basin is kept,
+     * just darkened a little so the ripples read. */
+    DrawRect(wx, wy, ww, wh, (L.kind == BD_POOL) ? 0x3B9FD4FF : 0x1A2F6A90);
+    GRRLIB_ClipDrawing((u32)wx, (u32)wy, (u32)ww, (u32)wh);
+    for (s8 row = WATER_ROW_START; row <= WATER_ROW_END && row < (s8)game->rowCount; ++row)
+        for (s8 col = 0; col < GRID_COLS; ++col)
+            DrawWaterWaves(game, row, col, game->lawnX + col * game->cellW,
+                           game->lawnY + row * game->cellH);
+    GRRLIB_ClipReset();
+}
 static void DrawLawnGrid(const GameContext* game)
 {
     s16 lawnW = game->cellW * GRID_COLS;
     s16 lawnH = game->cellH * game->rowCount;
-    DrawRect(game->lawnX, game->lawnY, lawnW, lawnH, COL_BG);
+    const bool art = s_bgArt;   /* the painted lawn already has its own checkerboard */
+    if (!art)
+        DrawRect(game->lawnX, game->lawnY, lawnW, lawnH, COL_BG);
+    else
+        DrawArtWater(game);
     for (s8 row = 0; row < (s8)game->rowCount; ++row)
     {
         for (s8 col = 0; col < GRID_COLS; ++col)
         {
             s16 x = game->lawnX + col * game->cellW;
             s16 y = game->lawnY + row * game->cellH;
-            DrawCellBackground(game, row, col, x, y);
+            if (!art)
+                DrawCellBackground(game, row, col, x, y);
             DrawCellDecorations(game, row, col, x, y);
             const GridCell* cell = &game->grid[row][col];
             if (cell->plant != PLANT_NONE)
@@ -1042,7 +1095,9 @@ static void DrawLawnGrid(const GameContext* game)
             }
         }
     }
-    /* Faint grid lines */
+    /* Faint grid lines (placeholder lawn only: the artwork has its own) */
+    if (art)
+        return;
     for (s8 col = 0; col <= GRID_COLS; ++col)
     {
         s16 x = game->lawnX + col * game->cellW;
@@ -1588,10 +1643,36 @@ static void DrawSelectionScreen(const GameContext* game, const InputState* input
     s16 totalW = cols * iconSize + (cols - 1) * gap;
     s16 startX = (SCREEN_WIDTH - totalW) / 2;
     s16 startY = 60;
+
+    /* The packet grid is taller than the screen once many plants are
+     * unlocked, so it scrolls: the window follows the cursor row (moving down
+     * through the plants moves the packets up), easing into place. */
+    const s16 rowStride  = iconSize + gap + 16;
+    const s16 viewTop    = startY - 6;
+    const s16 viewBottom = SCREEN_HEIGHT - 40;
+    const s16 viewH      = viewBottom - viewTop;
+    const int visibleRows = viewH / rowStride;
+    const int totalRows   = (game->unlockedCount + cols - 1) / cols;
+    const int cursorRow   = (game->selectionCursor >= 0) ? game->selectionCursor / cols : 0;
+    static int s_selTopRow = 0;
+    static f32 s_selScroll = 0.0f;              /* eased scroll offset, pixels */
+    if (cursorRow < s_selTopRow)                      s_selTopRow = cursorRow;
+    if (cursorRow > s_selTopRow + visibleRows - 1)    s_selTopRow = cursorRow - visibleRows + 1;
+    int maxTop = totalRows - visibleRows; if (maxTop < 0) maxTop = 0;
+    if (s_selTopRow > maxTop) s_selTopRow = maxTop;
+    if (s_selTopRow < 0)      s_selTopRow = 0;
+    {
+        f32 target = (f32)(s_selTopRow * rowStride);
+        s_selScroll += (target - s_selScroll) * 0.25f;
+        if (fabsf(target - s_selScroll) < 0.5f) s_selScroll = target;
+    }
+    GRRLIB_ClipDrawing(0, (u32)viewTop, SCREEN_WIDTH, (u32)viewH);
     for (u8 i = 0; i < game->unlockedCount; ++i)
     {
         s16 ix = startX + (i % cols) * (iconSize + gap);
-        s16 iy = startY + (i / cols) * (iconSize + gap + 16);
+        s16 iy = startY + (i / cols) * rowStride - (s16)(s_selScroll + 0.5f);
+        if (iy + rowStride < viewTop || iy > viewBottom)
+            continue;   /* scrolled out of view */
         PlantType type = game->unlockedPlants[i];
         u32 color = PlantColor(type);
         bool isSelected = false;
@@ -1617,6 +1698,18 @@ static void DrawSelectionScreen(const GameContext* game, const InputState* input
         /* Cursor highlight */
         if (isCursor)
             DrawRectOutline(ix - 3, iy - 3, iconSize + 6, iconSize + 6, 0xFFDD33FF, 3);
+    }
+    GRRLIB_ClipReset();
+    /* Scroll bar (only when there is something to scroll) */
+    if (totalRows > visibleRows)
+    {
+        s16 barX = startX + totalW + 14;
+        f32 frac = (f32)visibleRows / (f32)totalRows;
+        s16 thumbH = (s16)(viewH * frac);
+        f32 maxScroll = (f32)((totalRows - visibleRows) * rowStride);
+        s16 thumbY = viewTop + (s16)((viewH - thumbH) * (maxScroll > 0.0f ? s_selScroll / maxScroll : 0.0f));
+        DrawRect(barX, viewTop, 6, viewH, 0x00000070);
+        DrawRect(barX, thumbY, 6, thumbH, 0xFFDD33FF);
     }
     /* Selected list on the right side */
     s16 listX = SCREEN_WIDTH - 150;

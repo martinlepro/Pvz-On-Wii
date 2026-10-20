@@ -34,6 +34,7 @@
  */
 #include "input.h"
 #include "constants.h"
+#include "backdrop.h"
 #include "types.h"
 #include <grrlib.h>
 #include <stdio.h>
@@ -74,10 +75,14 @@ static GRRLIB_texImg *s_bg, *s_bar, *s_seedFrame;
 static GRRLIB_texImg *s_vase[3], *s_vaseIn[3], *s_shard[3][9];
 static GRRLIB_texImg *s_zomb[3], *s_pea, *s_snow;
 
-static const int LX = LAWN_MARGIN_X;
-static const int CW = CELL_WIDTH_DEFAULT;
-static const int CH = CELL_HEIGHT_DEFAULT;
-static const int LY = LAWN_MARGIN_Y + ((GRID_ROWS - 5) * CELL_HEIGHT_DEFAULT) / 2;
+/* Lawn geometry: same camera as the adventure levels (backdrop.h) -- the
+ * background is never stretched, lanes are CELL_HEIGHT_DEFAULT tall, the lawn
+ * is centred on the screen. Vasebreaker is a 5-lane day lawn. */
+static const BackdropLayout s_layout = Backdrop_Make(BD_DAY, NULL);
+static const int LX = s_layout.lawnX;
+static const int CW = s_layout.cellW;
+static const int CH = s_layout.cellH;
+static const int LY = Backdrop_LawnY(&s_layout, 5);
 #define ROWS 5
 
 static void Quad(GRRLIB_texImg* t, f32 x, f32 y, f32 w, f32 h, f32 angle, u32 color)
@@ -519,13 +524,17 @@ static void Button(int x, int y, int w, int h, bool sel, bool enabled, const cha
 
 static void DrawBackdrop(void)
 {
-    if (s_bg && s_bg->data) Quad(s_bg, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0xFFFFFFFF);
+    if (s_bg && s_bg->data)
+    {
+        const BackdropLayout L = Backdrop_Make(BD_DAY, s_bg);
+        Backdrop_Draw(s_bg, &L, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    }
     else GRRLIB_Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x4A8C3AFF, true);
 }
 
 static void DrawVase(const Vase* v)
 {
-    const f32 w = 52, h = 65;
+    const f32 w = (CW < 54) ? (f32)(CW - 2) : 52.0f, h = w * 65.0f / 52.0f;
     const f32 x = LX + v->col * CW + (CW - w) * 0.5f, y = LY + v->row * CH + CH - h + 4;
     GRRLIB_texImg* t = s_vase[v->kind];
     if (v->alive)
@@ -541,6 +550,20 @@ static void DrawVase(const Vase* v)
     }
 }
 
+/* Small health bar (green -> yellow -> red) centred on cx, bottom edge at y. */
+static void HealthBar(f32 cx, f32 y, f32 w, int hp, int maxHp)
+{
+    if (maxHp <= 0) return;
+    if (hp < 0) hp = 0;
+    if (hp > maxHp) hp = maxHp;
+    const f32 h = 5.0f, x = cx - w * 0.5f, top = y - h;
+    GRRLIB_Rectangle(x - 1, top - 1, w + 2, h + 2, 0x000000C0, true);
+    GRRLIB_Rectangle(x, top, w, h, 0x400000FF, true);
+    const f32 r = (f32)hp / (f32)maxHp;
+    const u32 col = r > 0.6f ? 0x44DD44FF : (r > 0.3f ? 0xDDDD44FF : 0xDD4444FF);
+    if (hp > 0) GRRLIB_Rectangle(x, top, w * r, h, col, true);
+}
+
 static void DrawZombie(const Zomb* z)
 {
     GRRLIB_texImg* t = s_zomb[z->type];
@@ -552,8 +575,13 @@ static void DrawZombie(const Zomb* z)
         f32 w = t->w * sc, h = t->h * sc;
         u32 tint = z->slow ? 0xA8D8FFFF : 0xFFFFFFFF;
         Quad(t, feetX - w * 0.5f, feetY - h + (z->pop > 0 ? z->pop * 30 : 0), w, h, 0, tint);
+        HealthBar(feetX, feetY - h + (z->pop > 0 ? z->pop * 30 : 0) + 2, 34.0f, z->hp, kZombHp[z->type]);
     }
-    else GRRLIB_Rectangle(feetX - 10, feetY - 40, 20, 40, 0x6B8E6BFF, true);
+    else
+    {
+        GRRLIB_Rectangle(feetX - 10, feetY - 40, 20, 40, 0x6B8E6BFF, true);
+        HealthBar(feetX, feetY - 42, 34.0f, z->hp, kZombHp[z->type]);
+    }
 }
 
 static void DrawPlay(const InputState* in)

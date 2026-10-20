@@ -24,7 +24,11 @@
 #define LAWN_MARGIN_X      40
 #define LAWN_MARGIN_Y      (SEED_BAR_HEIGHT + 8)
 
-/* Derived cell size (computed once at runtime in Game_Init) */
+/* Default cell size. NOTE: the real lawn geometry (lawnX/lawnY/cellW/cellH) is
+ * computed per level from the background art -- see backdrop.h /
+ * ApplyBackdropGeometry() in game.cpp. CELL_HEIGHT_DEFAULT is the one number
+ * that matters there: a lane is ALWAYS this tall, so the lawn keeps the same
+ * on-screen height in every world and at every screen size. */
 #define CELL_WIDTH_DEFAULT  ((SCREEN_WIDTH - LAWN_MARGIN_X * 2) / GRID_COLS)
 #define CELL_HEIGHT_DEFAULT ((SCREEN_HEIGHT - LAWN_MARGIN_Y - 16) / GRID_ROWS)
 
@@ -108,7 +112,11 @@
 #define ZOMBIE_BASE_SPEED_TPS   0.28f
 #define ZOMBIE_EAT_INTERVAL_FRAMES   (TARGET_FPS / 2)   /* one bite every 0.5s   */
 #define ZOMBIE_DEATH_FADE_FRAMES     (TARGET_FPS)       /* death-poof duration   */
-#define ZOMBIE_SPAWN_COL_OFFSET      1.4f               /* how far off-screen right zombies spawn */
+/* How far past the right edge of the lawn (in tiles) zombies spawn. The lawn is
+ * now centred with picture on both sides (see backdrop.h) and its columns are
+ * narrower than the old fixed 62px, so there are ~1.8 tiles of screen to the
+ * right of the lawn; 2.4 keeps the spawn point just off-screen. */
+#define ZOMBIE_SPAWN_COL_OFFSET      2.4f
 
 /* Time between one zombie spawning and the next being due -- "usually after
  * 5 seconds", with a little jitter so it doesn't feel metronomic. Also used
