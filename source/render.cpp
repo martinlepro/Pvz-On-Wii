@@ -45,6 +45,9 @@ void Hud_DrawHeldShovel(const GameContext* game, const InputState* input);
 /* screens.cpp */
 void Modes_Free(void);   /* modes.cpp */
 void Screens_Load(void);
+/* tutorial.cpp */
+void Tutorial_DrawLaneDim(const GameContext* game);
+void Tutorial_Draw(const GameContext* game);
 void Screens_Free(void);
 bool Screens_DrawBackground(const GameContext* game, GRRLIB_texImg* worldBg);
 bool Screens_DrawGameOver(const GameContext* game);
@@ -1139,6 +1142,28 @@ static void DrawTileCursor(const GameContext* game)
  *  (DrawTileCursor) shows which square it'll actually land on. Without a
  *  valid IR cursor (fallback control scheme) it's drawn at the discrete
  *  tile-cursor position instead, since there's no pointer to follow. */
+/** Plant name in a small tooltip under the seed packet the pointer is over. */
+static void DrawSeedTooltip(const GameContext* game, const InputState* input)
+{
+    if (!input || !input->cursorValid) return;
+    s8 slot = input->hoveredSeedSlot;
+    if (slot < 0 || slot >= (s8)game->selectedCount || slot >= SEED_SLOT_COUNT) return;
+    PlantType type = SlotToPlantDisplay(game, slot);
+    if (type < 0) return;
+    const char* name = Game_PlantName(type);
+    if (!name || !name[0]) return;
+    const unsigned size = 14;
+    int w = Render_TextWidth(size, name) + 14;
+    const int h = 22;
+    int slotX = SEED_BAR_PADDING + 130 + slot * (SEED_SLOT_WIDTH + SEED_BAR_PADDING);
+    int x = slotX + SEED_SLOT_WIDTH / 2 - w / 2;
+    if (x < 2) x = 2;
+    if (x + w > SCREEN_WIDTH - 2) x = SCREEN_WIDTH - 2 - w;
+    const int y = SEED_BAR_HEIGHT + 2;
+    DrawRect((s16)(x - 2), (s16)(y - 2), (s16)(w + 4), (s16)(h + 4), 0x2E1608FF);
+    DrawRect((s16)x, (s16)y, (s16)w, (s16)h, 0xF6E7B4FF);
+    Render_DrawTextCentered((s16)(x + w / 2), (s16)(y + (h - (int)size) / 2 - 1), 0x3A2A10FF, size, name);
+}
 static void DrawHeldSeed(const GameContext* game, const InputState* input)
 {
     if (!game->isHoldingSeed || game->heldPlant == PLANT_NONE)
@@ -1828,6 +1853,7 @@ void Render_Frame(const GameContext* game, const InputState* input)
     }
     DrawWorldBackground(game);
     DrawLawnGrid(game);
+    Tutorial_DrawLaneDim(game);
     DrawZombies(game);
     Mower_Draw(game);
     DrawProjectiles(game);
@@ -1843,6 +1869,8 @@ void Render_Frame(const GameContext* game, const InputState* input)
     DrawLevelBanner(game);
     DrawLevelProgressBar(game);
     DrawSpawnGauge(game);
+    Tutorial_Draw(game);
+    DrawSeedTooltip(game, input);
     DrawReticle(input);
 }
 void Render_Present(void)

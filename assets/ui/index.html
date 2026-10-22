@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="version" content="1.2.0">
+  <title>YouTube Frame Timer</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css">
+  <style>
+    .local-video-panel { margin: 1.25rem 0; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; }
+    #localVideo { display:block; width:100%; max-height:65vh; background:#111; margin:1rem 0; }
+    .video-controls { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+    .video-status { font-family:monospace; margin:.5rem 0; }
+    button { cursor:pointer; }
+  </style>
+  <script src="main.js" defer></script>
+</head>
+<body class="stackedit">
+  <div class="stackedit__html">
+    <h1 id="youtube-interval-timer">YouTube Interval Timer</h1>
+    <p>Mesure la durée entre deux points d’une vidéo, avec une précision à l’image près.</p>
+
+    <section class="local-video-panel">
+      <h3>Vidéo locale</h3>
+      <p>Choisis une vidéo depuis ton appareil. Elle reste lue localement dans ton navigateur et n’est pas envoyée sur un serveur.</p>
+      <label for="videoFile">Importer une vidéo :</label>
+      <input type="file" id="videoFile" accept="video/*">
+      <video id="localVideo" controls playsinline preload="metadata"></video>
+      <div class="video-status" id="videoStatus" aria-live="polite">Aucune vidéo chargée.</div>
+      <div class="video-controls">
+        <button type="button" id="prevFrame" disabled>◀ Image précédente</button>
+        <button type="button" id="nextFrame" disabled>Image suivante ▶</button>
+        <button type="button" id="setStart" disabled>Définir le départ ici</button>
+        <button type="button" id="setEnd" disabled>Définir la fin ici</button>
+      </div>
+      <p>Utilise les boutons d’image précédente/suivante pour te déplacer image par image. Renseigne le nombre d’images par seconde (FPS) ci-dessous pour régler le pas.</p>
+    </section>
+
+    <h3 id="video-framerate">Fréquence d’images</h3>
+    <p>
+      <label for="framerate">Framerate (FPS) :</label>
+      <input type="number" id="framerate" min="1" max="1000" step="1" value="60">
+    </p>
+
+    <h3 id="video-endpoints">Points de départ et de fin</h3>
+    <p>Pour une vidéo YouTube, tu peux toujours coller les données « Copy debug info » dans les champs ci-dessous. Pour une vidéo locale, utilise les boutons « Définir le départ/la fin ici » du lecteur.</p>
+    <p>
+      <label for="startobj">Départ (secondes) :</label>
+      <input type="number" id="startobj" step="any" style="width:100%">
+    </p>
+    <p>
+      <label for="endobj">Fin (secondes) :</label>
+      <input type="number" id="endobj" step="any" style="width:100%">
+    </p>
+
+    <h3 id="video-time">Durée calculée</h3>
+    <button id="computeButton" type="button">Calculer la durée</button>
+    <input type="text" id="time" readonly size="24" aria-label="Durée calculée">
+    <p><textarea id="modMessage" cols="40" rows="5" disabled></textarea></p>
+    <button id="modMessageButton" type="button" disabled>Copier le message</button>
+  </div>
+</body>
+</html>

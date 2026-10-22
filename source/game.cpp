@@ -19,6 +19,7 @@
 /* mower.cpp */
 extern "C" void Mower_Update(GameContext* game);
 extern "C" void Hud_Update(GameContext* game);                          /* hud.cpp */
+extern "C" void Tutorial_Update(GameContext* game);                     /* tutorial.cpp */
 extern "C" bool Hud_HandleInput(GameContext* game, const InputState* input);
 
 /* -------------------------------------------------------------------------- */
@@ -636,6 +637,11 @@ void Game_Update(GameContext* game, const InputState* input)
 
     if (game->state == GAME_STATE_PLAYING)
     {
+        /* Tutorials (1-1 / 1-2): advances the steps and holds back / releases
+         * the first sky sun and the first zombie. Must run before the sun and
+         * wave logic below. */
+        Tutorial_Update(game);
+
         /* Passive sun from sunflowers */
         if ((game->frameCount % 300) == 0)
         {

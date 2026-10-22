@@ -275,10 +275,12 @@ static void SpawnDueZombiesForWave(GameContext* game, LevelWave* wave) {
 /* mower.cpp: one lawn mower / pool cleaner / roof cleaner per row */
 extern "C" void Mower_Reset(const GameContext* game);
 extern "C" void Hud_Reset(void);   /* hud.cpp */
+extern "C" void Tutorial_Reset(const GameContext* game);   /* tutorial.cpp */
 
 void Level_StartPlaying(GameContext* game) {
     Mower_Reset(game);
     Hud_Reset();
+    Tutorial_Reset(game);   /* 1-1 / 1-2 guided tutorials; no-op elsewhere */
     if (Survival_IsSurvival(game->currentLevelIndex)) {
         Survival_BuildWavePlan(game);
     } else if (Minigame_IsMinigame(game->currentLevelIndex)) {
