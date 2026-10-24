@@ -40,6 +40,7 @@ bool Hud_DrawBarBg(const GameContext* game);
 void Hud_DrawSunCount(unsigned sun);
 bool Hud_DrawPacketFrame(int slotX, int slotY);
 void Hud_DrawCooldown(int slotX, int slotY, int w, int h, int plantType);
+bool Hud_IsRecharging(PlantType type);
 void Hud_DrawExtras(const GameContext* game, const InputState* input);
 void Hud_DrawHeldShovel(const GameContext* game, const InputState* input);
 /* screens.cpp */
@@ -851,12 +852,8 @@ static void DrawLevelBanner(const GameContext* game)
         snprintf(buf, sizeof(buf), "%s - Level %u", Level_WorldName(world), (unsigned)levelInWorld);
         DrawLabel(SCREEN_WIDTH - 170, 18, COL_HUD_TEXT, 14, buf);
     }
-    if (game->state == GAME_STATE_LEVEL_WON)
-    {
-        DrawRect(SCREEN_WIDTH / 2 - 140, SCREEN_HEIGHT / 2 - 30, 280, 60, 0x000000B0);
-        DrawLabel(SCREEN_WIDTH / 2 - 90, SCREEN_HEIGHT / 2 - 8, 0xFFDD33FF, 20, "Level Complete!");
-    }
-    else if (game->state == GAME_STATE_GAME_OVER)
+    /* No "Level Complete!" box any more: the reward screen (or the next level) follows directly. */
+    if (game->state == GAME_STATE_GAME_OVER)
     {
         if (!Screens_DrawGameOver(game))   /* art missing: old text box */
         {
@@ -915,7 +912,7 @@ static void DrawSeedBar(const GameContext* game, const InputState* input)
          * an idle slot gets no border decoration at all. */
         if (isSelected)
             DrawDashedBreathingBorder(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, COL_SLOT_SEL, 10, game->frameCount);
-        else if (isHovered)
+        else if (isHovered && !Hud_IsRecharging(type))   /* a recharging packet gives no "selectable" cue */
             DrawRectOutline(slotX, slotY, SEED_SLOT_WIDTH, SEED_SLOT_HEIGHT, COL_SLOT_HOVER, 2);
         const s16 iconSize = framed ? 36 : 48;
         s16 iconX = slotX + (SEED_SLOT_WIDTH - iconSize) / 2;

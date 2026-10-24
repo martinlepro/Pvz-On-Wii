@@ -25,6 +25,7 @@
 #include <string.h>
 #include <math.h>
 #include <sys/stat.h>
+#include "sfx.h"
 
 #ifndef SCREEN_WIDTH
 #define SCREEN_WIDTH 640
@@ -179,6 +180,20 @@ static int  s_activeItem = ITEM_NONE;
 #define AW_BTN_Y 404
 #define AW_BTN_W 160
 #define AW_BTN_H 42
+/* "Title Screen" button, top-right corner (same place as on the New Plant screen) */
+#define AW_TITLE_X 542
+#define AW_TITLE_Y 10
+#define AW_TITLE_W 92
+#define AW_TITLE_H 30
+#define AW_LAST_LEVEL 49          /* 5-10: no "next level" after it */
+
+static int  s_sel = 0;            /* reveal screen focus: 0 = Next Level, 1 = Title Screen */
+static bool s_titleRequested = false;
+
+static bool InRect(bool valid, f32 px, f32 py, int x, int y, int w, int h)
+{
+    return valid && px >= (f32)x && px < (f32)(x + w) && py >= (f32)y && py < (f32)(y + h);
+}
 
 static void DrawTex(GRRLIB_texImg* t, f32 cx, f32 cy, f32 sx, f32 sy, u32 color)
 {
@@ -228,6 +243,7 @@ static void FreeAssets(void)
     s_assets = false;
     s_texFor = -2;
     s_phase  = 0;
+    s_sel    = 0;
     s_activeItem = ITEM_NONE;
 }
 
@@ -254,11 +270,19 @@ extern "C" bool ItemAward_Update(unsigned char levelIndex, u32 down,
     EnsureAssets(item);
 
     bool pressed = (down & (WPAD_BUTTON_A | WPAD_BUTTON_B)) != 0;
-    (void)pointerValid; (void)px; (void)py; /* A/B anywhere; button is just a hint */
+    /* Reveal screen has two buttons: [Next Level] (A/B anywhere) and [Title Screen]
+     * (point at it, or move the focus with the D-pad, then press A). */
+    if (s_phase == 2)
+    {
+        if (down & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT | WPAD_BUTTON_UP | WPAD_BUTTON_DOWN))
+            s_sel = 1 - s_sel;
+        if (InRect(pointerValid, px, py, AW_TITLE_X, AW_TITLE_Y, AW_TITLE_W, AW_TITLE_H)) s_sel = 1;
+        else if (InRect(pointerValid, px, py, AW_BTN_X, AW_BTN_Y, AW_BTN_W, AW_BTN_H))    s_sel = 0;
+    }
 
     if (s_phase == 0)
     {
-        if (pressed) { s_phase = 1; s_phaseStart = s_frame; }
+        if (pressed) { s_phase = 1; s_phaseStart = s_frame; Sfx_Play(SFX_PRIZE); }
     }
     else if (s_phase == 1)
     {
@@ -266,11 +290,20 @@ extern "C" bool ItemAward_Update(unsigned char levelIndex, u32 down,
     }
     else if (pressed && s_frame - s_phaseStart > 12)
     {
+        s_titleRequested = (s_sel == 1 && (down & WPAD_BUTTON_A) != 0);
         Items_Grant(item);   /* saves to SD */
         FreeAssets();
         return true;
     }
     return false;
+}
+
+/** True once (and then cleared) if the player chose [Title Screen] on the reveal screen. */
+extern "C" bool ItemAward_TitleRequested(void)
+{
+    bool r = s_titleRequested;
+    s_titleRequested = false;
+    return r;
 }
 
 extern "C" void ItemAward_Render(unsigned char levelIndex, bool pointerValid, f32 px, f32 py)
@@ -346,9 +379,14 @@ extern "C" void ItemAward_Render(unsigned char levelIndex, bool pointerValid, f3
 
     if (s_phase == 2)
     {
-        GRRLIB_Rectangle(AW_BTN_X - 3, AW_BTN_Y - 3, AW_BTN_W + 6, AW_BTN_H + 6, 0xFFE27AFF, true);
-        GRRLIB_Rectangle(AW_BTN_X, AW_BTN_Y, AW_BTN_W, AW_BTN_H, 0xB8662CFF, true);
-        Render_DrawTextCentered(AW_BTN_X + AW_BTN_W / 2, AW_BTN_Y + 10, 0xFFFFFFFF, 22, "Continue");
+        const bool selNext = (s_sel == 0), selTitle = (s_sel == 1);
+        GRRLIB_Rectangle(AW_BTN_X - 3, AW_BTN_Y - 3, AW_BTN_W + 6, AW_BTN_H + 6, selNext ? 0xFFE27AFF : 0x2E1608FF, true);
+        GRRLIB_Rectangle(AW_BTN_X, AW_BTN_Y, AW_BTN_W, AW_BTN_H, selNext ? 0xB8662CFF : 0x8B4A23FF, true);
+        Render_DrawTextCentered(AW_BTN_X + AW_BTN_W / 2, AW_BTN_Y + 10, selNext ? 0xFFFFFFFF : kCream, 22,
+                                (levelIndex >= AW_LAST_LEVEL) ? "Continue" : "Next Level");
+        GRRLIB_Rectangle(AW_TITLE_X - 2, AW_TITLE_Y - 2, AW_TITLE_W + 4, AW_TITLE_H + 4, selTitle ? 0xFFE27AFF : 0x2E1608FF, true);
+        GRRLIB_Rectangle(AW_TITLE_X, AW_TITLE_Y, AW_TITLE_W, AW_TITLE_H, selTitle ? 0xB8662CFF : 0x8B4A23FF, true);
+        Render_DrawTextCentered(AW_TITLE_X + AW_TITLE_W / 2, AW_TITLE_Y + 8, selTitle ? 0xFFFFFFFF : kCream, 12, "Title Screen");
     }
 
     /* The full-screen art covers the normal reticle, so draw a small one. */

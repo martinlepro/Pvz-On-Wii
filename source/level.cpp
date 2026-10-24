@@ -6,9 +6,11 @@
 #include "level.h"
 #include "game.h"
 #include "audio.h"
+#include "sfx.h"
 #include "combat.h"
 #include "minigame.h"
 #include "survival.h"
+#include "save.h"
 
 /* Also defined in constants.h; repeated so this file builds even with an older constants.h. */
 #ifndef EARLY_LEVEL_STARTING_SUN
@@ -109,6 +111,22 @@ static int BuildUnlockedPool(u8 levelIndex, ZombieType* outPool, int maxOut) {
     return count;
 }
 
+/* Time between one zombie spawning and the next one being due (also the wait
+ * before the very first zombie of a wave): 7 s on level 1-1, shrinking
+ * linearly to 5 s on level 5-10, with up to +/-0.5 s of jitter so it never feels
+ * metronomic -- always inside the 5..7 s window. The "zombies incoming" gauge
+ * in render.cpp fills over exactly this time (stored in spawnIntervalTotal). */
+static u32 AdventureSpawnInterval(u8 levelIndex) {
+    const int lo = TARGET_FPS * 5;
+    const int hi = TARGET_FPS * 7;
+    int lvl = (levelIndex >= TOTAL_LEVELS) ? (TOTAL_LEVELS - 1) : (int)levelIndex;
+    int base = hi - ((hi - lo) * lvl) / (TOTAL_LEVELS - 1);
+    int v = base + (rand() % (TARGET_FPS + 1)) - TARGET_FPS / 2;
+    if (v < lo) v = lo;
+    if (v > hi) v = hi;
+    return (u32)v;
+}
+
 /* Builds the wave plan for `levelIndex` directly into game->waves[]. */
 void BuildWavePlan(GameContext* game, u8 levelIndex) {
     ZombieType pool[UNLOCK_SCHEDULE_COUNT];
@@ -140,8 +158,7 @@ void BuildWavePlan(GameContext* game, u8 levelIndex) {
         }
         wave->zombieCount = count;
         wave->spawnedCount = 0;
-        wave->spawnIntervalTotal = ZOMBIE_SPAWN_INTERVAL_FRAMES
-            + (rand() % (2 * ZOMBIE_SPAWN_INTERVAL_JITTER_FRAMES + 1)) - ZOMBIE_SPAWN_INTERVAL_JITTER_FRAMES;
+        wave->spawnIntervalTotal = AdventureSpawnInterval(levelIndex);
         wave->nextSpawnTimer = wave->spawnIntervalTotal;
     }
 
@@ -162,6 +179,7 @@ void Level_Start(GameContext* game, u8 levelIndex) {
     game->levelIntermissionTimer = 0;
 
     bool isSurvival = Survival_IsSurvival(levelIndex);
+    Save_NoteLevelStarted(levelIndex, !isSurvival && !Minigame_IsMinigame(levelIndex));
 
     if (isSurvival) {
         Survival_Setup(game);
@@ -264,11 +282,14 @@ static void SpawnDueZombiesForWave(GameContext* game, LevelWave* wave) {
     Zombie_Spawn(game, t, row);
     wave->spawnedCount++;
 
-    /* "Usually after 5 seconds" -- a little jitter so it doesn't feel
+    /* "5 to 7 seconds depending on the level" -- a little jitter so it doesn't feel
      * metronomic. Stored in spawnIntervalTotal too so the gauge in
      * render.cpp knows what 100% full corresponds to. */
-    wave->spawnIntervalTotal = ZOMBIE_SPAWN_INTERVAL_FRAMES
-        + (rand() % (2 * ZOMBIE_SPAWN_INTERVAL_JITTER_FRAMES + 1)) - ZOMBIE_SPAWN_INTERVAL_JITTER_FRAMES;
+    if (!Survival_IsSurvival(game->currentLevelIndex) && !Minigame_IsMinigame(game->currentLevelIndex))
+        wave->spawnIntervalTotal = AdventureSpawnInterval(game->currentLevelIndex);
+    else
+        wave->spawnIntervalTotal = ZOMBIE_SPAWN_INTERVAL_FRAMES
+            + (rand() % (2 * ZOMBIE_SPAWN_INTERVAL_JITTER_FRAMES + 1)) - ZOMBIE_SPAWN_INTERVAL_JITTER_FRAMES;
     wave->nextSpawnTimer = wave->spawnIntervalTotal;
 }
 
@@ -276,6 +297,7 @@ static void SpawnDueZombiesForWave(GameContext* game, LevelWave* wave) {
 extern "C" void Mower_Reset(const GameContext* game);
 extern "C" void Hud_Reset(void);   /* hud.cpp */
 extern "C" void Tutorial_Reset(const GameContext* game);   /* tutorial.cpp */
+extern "C" void Sfx_ResetGame(const GameContext* game);    /* sfx_events.cpp */
 
 void Level_StartPlaying(GameContext* game) {
     Mower_Reset(game);
@@ -289,6 +311,12 @@ void Level_StartPlaying(GameContext* game) {
         BuildWavePlan(game, game->currentLevelIndex);
     }
     game->state = GAME_STATE_PLAYING;
+    Sfx_ResetGame(game);               /* sound-event snapshot starts from this board */
+    Sfx_Play(SFX_READYSETPLANT);
+    if (game->currentLevelIndex == 0 && !Survival_IsSurvival(0) && !Minigame_IsMinigame(0))
+        Sfx_Play(SFX_ROLL_IN);                                 /* 1-1: the sod rolls out */
+    if (game->worldFlags & WORLD_FLAG_HAS_GRAVES)
+        Sfx_PlayDelayed(SFX_GRAVESTONE_RUMBLE, 30, 220);       /* night: graves push up */
 }
 
 void Level_Update(GameContext* game) {

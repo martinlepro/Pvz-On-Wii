@@ -1,11 +1,13 @@
 #include "menu.h"
 #include "audio.h"
+#include "sfx.h"
 #include "constants.h"
 #include "render.h"
 #include "level.h"
 #include "locale.h"
 #include "survival.h"
 #include "minigame.h"
+#include "save.h"
 
 #include <grrlib.h>
 #include <stdio.h>
@@ -18,6 +20,7 @@
 extern "C" {
 bool ItemAward_Active(unsigned char levelIndex);
 bool ItemAward_Update(unsigned char levelIndex, u32 down, bool pointerValid, f32 px, f32 py);
+bool ItemAward_TitleRequested(void);   /* true once if "Title Screen" was chosen on the item screen */
 void ItemAward_Render(unsigned char levelIndex, bool pointerValid, f32 px, f32 py);
 }
 /* Level index the award screen is currently for (HandleInput sets it; Menu_Render only gets menu+settings). */
@@ -166,9 +169,11 @@ void Menu_Toggle(MenuContext* menu, Settings* settings)
     {
         menu->screen = MENU_MAIN;
         menu->cursorIndex = 0;
+        Sfx_Play(SFX_PAUSE);
     }
     else if (!Menu_IsTitle(menu))
     {
+        Sfx_Play(SFX_PAUSE);
         menu->screen = MENU_CLOSED;
         Settings_Save(settings);
     }
@@ -177,13 +182,69 @@ void Menu_Toggle(MenuContext* menu, Settings* settings)
 void Menu_ShowTitle(MenuContext* menu, Settings* settings)
 {
     if (!menu) return;
+    Save_OnExit();                 /* leaving a level for the title screen: save progress + coins */
     Audio_PlayMenuBGM();
     menu->screen = MENU_TITLE;
     menu->cursorIndex = 0;
     Locale_SetLanguage((Language)settings->language);
 }
 
-bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
+bool Menu_ShowWinScreens(MenuContext* menu, GameContext* game)
+{
+    if (!menu || !game) return false;
+    menu->canNextLevel = game->currentLevelIndex < (u8)(TOTAL_LEVELS - 1) &&
+                         !Survival_IsSurvival(game->currentLevelIndex);
+    menu->rewardPlant  = game->newRewardPlant;
+    game->newRewardPlant = PLANT_NONE;
+    menu->cursorIndex = 0;
+    if (menu->rewardPlant != PLANT_NONE)
+    {
+        menu->screen = MENU_NEW_PLANT;
+        return true;
+    }
+    if (!Survival_IsSurvival(game->currentLevelIndex) && !Minigame_IsMinigame(game->currentLevelIndex) &&
+        ItemAward_Active((unsigned char)game->currentLevelIndex))
+    {
+        s_awardLevel = game->currentLevelIndex;
+        menu->screen = MENU_VICTORY;     /* the "New Item!" screen */
+        return true;
+    }
+    return false;
+}
+
+void Menu_AdvanceAfterWin(MenuContext* menu, Settings* settings, GameContext* game)
+{
+    if (!menu || !game) return;
+    s_awardLevel = -1;
+    menu->rewardPlant = PLANT_NONE;
+    if (menu->canNextLevel)
+    {
+        menu->screen = MENU_CLOSED;
+        Level_Start(game, (u8)(game->currentLevelIndex + 1));
+    }
+    else
+    {
+        Game_Reset(game);
+        Menu_ShowTitle(menu, settings);
+    }
+}
+
+/* After the plant screen: the level's item (if any) comes next, else straight on. */
+static void AfterPlantScreen(MenuContext* menu, Settings* settings, GameContext* game)
+{
+    menu->rewardPlant = PLANT_NONE;
+    if (!Survival_IsSurvival(game->currentLevelIndex) && !Minigame_IsMinigame(game->currentLevelIndex) &&
+        ItemAward_Active((unsigned char)game->currentLevelIndex))
+    {
+        s_awardLevel = game->currentLevelIndex;
+        menu->screen = MENU_VICTORY;
+        menu->cursorIndex = 0;
+    }
+    else
+        Menu_AdvanceAfterWin(menu, settings, game);
+}
+
+static bool MenuHandleInputImpl(MenuContext* menu, Settings* settings, GameContext* game)
 {
     if (!menu || !settings) return false;
 
@@ -224,7 +285,7 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
             if (down & menuMask)
             {
                 /* Quick start: skip selection screen, default to Peashooter */
-                Level_Start(game, 0);
+                Level_Start(game, (u8)Save_GetAdventureLevel());
                 game->selectedPlants[0] = PLANT_PEASHOOTER;
                 game->selectedCount = 1;
                 Level_StartPlaying(game);
@@ -236,8 +297,8 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
             {
                 switch (menu->cursorIndex)
                 {
-                    case 0: /* Adventure */
-                        Level_Start(game, 0);
+                    case 0: /* Adventure: continue from the saved level */
+                        Level_Start(game, (u8)Save_GetAdventureLevel());
                         Locale_SetLanguage((Language)settings->language);
                         menu->screen = MENU_CLOSED;
                         startedLevel = true;
@@ -496,64 +557,36 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
                     Menu_ShowTitle(menu, settings);
                 }
                 else
-                {
-                    menu->rewardPlant = PLANT_NONE; /* shown once; the victory menu is next */
-                    menu->screen = MENU_VICTORY;
-                    menu->cursorIndex = 0;
-                }
+                    AfterPlantScreen(menu, settings, game);    /* [Next Level] */
             }
             else if (down & WPAD_BUTTON_B)
-            {
-                menu->rewardPlant = PLANT_NONE;
-                menu->screen = MENU_VICTORY;
-                menu->cursorIndex = 0;
-            }
+                AfterPlantScreen(menu, settings, game);
             break;
         }
 
         case MENU_VICTORY:
         {
+            /* The "New Item!" screen (gift -> open -> reveal) with [Next Level] and
+             * [Title Screen]. The old "LEVEL WON!" list (Next Level / Retry / Main Menu)
+             * no longer exists. */
             if (!game) { menu->screen = MENU_CLOSED; break; }
-            /* Levels without a plant reward may give an ITEM instead: gift -> open -> "New Item!" */
-            if (ItemAward_Active((unsigned char)game->currentLevelIndex))
+            s_awardLevel = game->currentLevelIndex;
+            if (!ItemAward_Active((unsigned char)game->currentLevelIndex))
             {
-                s_awardLevel = game->currentLevelIndex;
-                ItemAward_Update((unsigned char)game->currentLevelIndex, down,
-                                 menu->pointerValid, menu->pointerX, menu->pointerY);
-                menu->cursorIndex = 0;
+                Menu_AdvanceAfterWin(menu, settings, game);   /* nothing (left) to award */
                 break;
             }
-            s_awardLevel = -1;
-            bool canNext = menu->canNextLevel;
-            int itemCount = canNext ? 3 : 2;
-            if (menu->cursorIndex < 0) menu->cursorIndex = itemCount - 1;
-            if (menu->cursorIndex >= itemCount) menu->cursorIndex = 0;
-
-            if (down & WPAD_BUTTON_A)
+            bool claimed = ItemAward_Update((unsigned char)game->currentLevelIndex, down,
+                                            menu->pointerValid, menu->pointerX, menu->pointerY);
+            menu->cursorIndex = 0;
+            if (ItemAward_TitleRequested())
             {
-                if (menu->cursorIndex == 0 && canNext)
-                {
-                    menu->screen = MENU_CLOSED;
-                    game->state = GAME_STATE_SELECTING;
-                    Level_Start(game, (u8)(game->currentLevelIndex + 1));
-                }
-                else if ((menu->cursorIndex == 0 && !canNext) ||
-                         (menu->cursorIndex == 1 && canNext))
-                {
-                    menu->screen = MENU_CLOSED;
-                    Level_Start(game, game->currentLevelIndex);
-                }
-                else
-                {
-                    Game_Reset(game);
-                    Menu_ShowTitle(menu, settings);
-                }
+                s_awardLevel = -1;
+                Game_Reset(game);
+                Menu_ShowTitle(menu, settings);
             }
-            else if (down & WPAD_BUTTON_B)
-            {
-                menu->screen = MENU_CLOSED;
-                Level_Start(game, game->currentLevelIndex);
-            }
+            else if (claimed)
+                Menu_AdvanceAfterWin(menu, settings, game);
             break;
         }
 
@@ -590,6 +623,30 @@ bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
     }
 
     return startedLevel;
+}
+
+/* Menu sounds: a click when a different screen opens, a blip when the highlight
+ * (or the volume) moves. Done around the real handler so none of its many
+ * branches needs touching. */
+bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game)
+{
+    if (!menu || !settings) return MenuHandleInputImpl(menu, settings, game);
+
+    const MenuScreen prevScreen = menu->screen;
+    const s8         prevCursor = menu->cursorIndex;
+    const u8         prevVolume = settings->volume;
+
+    const bool started = MenuHandleInputImpl(menu, settings, game);
+
+    if (menu->screen != prevScreen)
+    {
+        if (menu->screen != MENU_CLOSED && menu->screen != MENU_REBIND_WAIT)
+            Sfx_Play(SFX_BUTTONCLICK);
+    }
+    else if (menu->cursorIndex != prevCursor || settings->volume != prevVolume)
+        Sfx_Play(SFX_BLEEP);
+
+    return started;
 }
 
 static void DrawText(s16 x, s16 y, u32 color, const char* text)
@@ -672,6 +729,16 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
                     s16 bh = (s16)menu->btnAdventure->h;
                     if (sel0) GRRLIB_Rectangle(leftX - 4, rowY[0] - 4, bw + 8, bh + 8, 0xFFCC00FF, true);
                     GRRLIB_DrawImg(leftX, rowY[0], menu->btnAdventure, 0.0f, 1.0f, 1.0f, 0xFFFFFFFF);
+                    /* The art says "LEVEL -": paint the real level over the dash as
+                     * <world>-<level>, world first (Day = 1, Night = 2, Pool = 3,
+                     * Fog = 4, Roof = 5) -- e.g. "2-3" for the third Night level. */
+                    {
+                        int lvl = Save_GetAdventureLevel();
+                        char lb[8];
+                        snprintf(lb, sizeof(lb), "%d-%d", lvl / LEVELS_PER_WORLD + 1, lvl % LEVELS_PER_WORLD + 1);
+                        GRRLIB_Rectangle((f32)(leftX + 86), (f32)(rowY[0] + 16), 20.0f, 10.0f, 0x02020FFF, true);
+                        Render_DrawTextCentered((s16)(leftX + 96), (s16)(rowY[0] + 15), 0xFFFFFFFF, 10, lb);
+                    }
                 }
                 else
                     DrawText(leftX, rowY[0], sel0 ? 0xFFFF00FF : 0xFFFFFFFF, Locale_Str(STR_ADVENTURE));
@@ -989,7 +1056,7 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
                 GRRLIB_Rectangle(NP_CONTINUE_X, NP_CONTINUE_Y, NP_CONTINUE_W, NP_CONTINUE_H,
                                  sel ? 0xB8662CFF : 0x8B4A23FF, true);
                 Render_DrawTextCentered(NP_CONTINUE_X + NP_CONTINUE_W / 2, NP_CONTINUE_Y + 10,
-                                        sel ? 0xFFFFFFFF : kCream, 22, "Continue");
+                                        sel ? 0xFFFFFFFF : kCream, 22, menu->canNextLevel ? "Next Level" : "Continue");
             }
 
             /* Title Screen button, top-right corner */
@@ -1007,46 +1074,10 @@ void Menu_Render(const MenuContext* menu, const Settings* settings)
 
         case MENU_VICTORY:
         {
+            /* "New Item!" screen only (see Menu_ShowWinScreens) */
             if (s_awardLevel >= 0 && ItemAward_Active((unsigned char)s_awardLevel))
-            {
                 ItemAward_Render((unsigned char)s_awardLevel, menu->pointerValid,
                                  menu->pointerX, menu->pointerY);
-                break;
-            }
-            GRRLIB_Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x00000080, true);
-            DrawTextLarge(SCREEN_WIDTH / 2 - 120, SCREEN_HEIGHT / 2 - 80, 0xFFDD33FF, "LEVEL WON!");
-            /* Show world reward if any */
-            if (menu->rewardPlant != PLANT_NONE)
-            {
-                char rewardBuf[64];
-                snprintf(rewardBuf, sizeof(rewardBuf), "NEW PLANT: %s!", Game_PlantName(menu->rewardPlant));
-                DrawText(SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 60, 0x44FF44FF, rewardBuf);
-            }
-            y = SCREEN_HEIGHT / 2 - 30;
-            x = SCREEN_WIDTH / 2 - 80;
-            int itemCount;
-            const char* items[3];
-            if (menu->canNextLevel)
-            {
-                itemCount = 3;
-                items[0] = "Next Level";
-                items[1] = "Retry";
-                items[2] = "Main Menu";
-            }
-            else
-            {
-                itemCount = 2;
-                items[0] = "Retry";
-                items[1] = "Main Menu";
-            }
-            for (int i = 0; i < itemCount; i++)
-            {
-                bool sel = (i == menu->cursorIndex);
-                if (sel)
-                    GRRLIB_Rectangle(x - 8, y - 4, 180, MENU_ITEM_H, 0x448844FF, true);
-                DrawText(x, y, sel ? 0xFFFF00FF : 0xFFFFFFFF, items[i]);
-                y += MENU_ITEM_H + 4;
-            }
             break;
         }
 

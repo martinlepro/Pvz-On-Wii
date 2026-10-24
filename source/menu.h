@@ -36,8 +36,8 @@ typedef enum {
     MENU_VOLUME,
     MENU_CONTROLS,
     MENU_REBIND_WAIT,
-    MENU_NEW_PLANT,      /* "New Plant!" reward screen, shown before MENU_VICTORY */
-    MENU_VICTORY,
+    MENU_NEW_PLANT,      /* "New Plant!" reward screen: [Next Level] + [Title Screen] */
+    MENU_VICTORY,        /* now ONLY the "New Item!" gift/reward screen (the old "LEVEL WON!" list is gone) */
     MENU_DEFEAT
 } MenuScreen;
 
@@ -78,6 +78,19 @@ void Menu_ShowTitle(MenuContext* menu, Settings* settings);
  *  `game` may be NULL (only needed for the "Reset Lawn" action).
  *  Returns true if the caller should start a level (Adventure or minigame). */
 bool Menu_HandleInput(MenuContext* menu, Settings* settings, GameContext* game);
+
+/**
+ * Called once, the moment a level is won. Opens the plant-reward screen or the
+ * item-reward screen if this level has one (both offer [Next Level] and
+ * [Title Screen]) and returns true. Returns false when there is no reward: the
+ * caller then lets the win breathe for a moment and calls Menu_AdvanceAfterWin().
+ * There is no separate "Level Finish" screen any more.
+ */
+bool Menu_ShowWinScreens(MenuContext* menu, GameContext* game);
+
+/** Goes on after a win: next Adventure level, or the title screen after the last
+ *  level / a Survival or mini-game win. */
+void Menu_AdvanceAfterWin(MenuContext* menu, Settings* settings, GameContext* game);
 
 /** Draw the menu panel on top of the current frame (call after Render_Frame). */
 void Menu_Render(const MenuContext* menu, const Settings* settings);

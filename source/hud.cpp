@@ -3,7 +3,11 @@
  *   * seed bar background, seed-packet frame, sun counter on the scroll
  *   * seed-packet recharge (cooldown) with a dimming overlay
  *   * Shovel slot + working Shovel tool (only if the shovel item was earned)
- *   * Coin bank (persistent coins, +COIN_LEVEL_BONUS per level cleared)
+ *   * Coins: zombies sometimes drop a coin when they die; it must be CLICKED
+ *     (nothing is collected automatically). The bank counter only shows,
+ *     bottom-left, for 3 s after a coin is picked up. The total is written to
+ *     the SD card by the save system (Coins_Flush, see save.cpp) when a level
+ *     is completed, lost or left.
  *
  * SELF-CONTAINED: no header or struct changes; all state is file-local.
  *
@@ -27,8 +31,10 @@
 #include "plant.h"
 #include "minigame.h"
 #include "particle.h"
+#include "sfx.h"
 #include <grrlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <sys/stat.h>
@@ -44,7 +50,14 @@ bool Items_HasShovel(void);   /* items.cpp (step 1) */
 #endif
 #define COINS_PATH SETTINGS_DIR "/coins.cfg"
 
-#define COIN_LEVEL_BONUS   25       /* placeholder rule: coins per level cleared */
+#define COIN_DROP_PERCENT      25                  /* chance a dying zombie drops a coin      */
+#define COIN_GOLD_PERCENT      20                  /* of the drops, how many are gold (50)   */
+#define COIN_SILVER_VALUE      10
+#define COIN_GOLD_VALUE        50
+#define COIN_LIFETIME_FRAMES   (TARGET_FPS * 8)    /* uncollected coins vanish after 8 s      */
+#define COIN_PICK_RADIUS       24.0f               /* click distance (px) that grabs a coin   */
+#define COIN_COUNTER_FRAMES    (TARGET_FPS * 3)    /* bank counter stays up 3 s after a pickup */
+#define MAX_COIN_DROPS         8
 #define HUD_COOLDOWNS      1        /* 0 = packets never recharge-lock */
 
 static GRRLIB_texImg *s_bar, *s_frame, *s_shovelSlot, *s_coinBank, *s_shovel;
@@ -86,6 +99,7 @@ static void DrawTex(GRRLIB_texImg* t, f32 x, f32 y, f32 sx, f32 sy, f32 angleDeg
 /* ------------------------------------------------------------------ */
 static u32  s_coins = 0;
 static bool s_coinsLoaded = false;
+static bool s_coinsDirty  = false;   /* picked up in a level, not yet written to the SD card */
 
 static void LoadCoins(void)
 {
@@ -105,6 +119,14 @@ static void SaveCoins(void)
     if (!f) return;
     fprintf(f, "COINS=%u\n", (unsigned)s_coins);
     fclose(f);
+    s_coinsDirty = false;
+}
+
+/** Writes the coin total if coins were picked up since the last write. Called by
+ *  the save system when a level is completed, lost or left. */
+extern "C" void Coins_Flush(void)
+{
+    if (s_coinsDirty) SaveCoins();
 }
 
 extern "C" u32  Coins_Get(void) { LoadCoins(); return s_coins; }
@@ -122,13 +144,136 @@ extern "C" void Coins_Add(u32 n)
 }
 
 /* ------------------------------------------------------------------ */
+/* Coin drops (click to collect)                                       */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    bool active;
+    f32  x, y;          /* screen position of the coin centre         */
+    f32  vy;            /* pop-up velocity while it is still in the air */
+    f32  groundY;       /* where it comes to rest                      */
+    u16  age;
+    u16  value;
+} CoinDrop;
+
+static CoinDrop s_drops[MAX_COIN_DROPS];
+static bool     s_wasDying[MAX_ZOMBIES];
+static u16      s_counterTimer = 0;       /* >0: the bank counter is on screen */
+
+static void ClearCoinDrops(void)
+{
+    memset(s_drops, 0, sizeof(s_drops));
+    memset(s_wasDying, 0, sizeof(s_wasDying));
+    s_counterTimer = 0;
+}
+
+static void SpawnCoinDrop(const GameContext* g, const Zombie* z)
+{
+    for (int i = 0; i < MAX_COIN_DROPS; ++i)
+    {
+        CoinDrop* d = &s_drops[i];
+        if (d->active) continue;
+        f32 tx = z->x + 0.5f;
+        if (tx < 0.3f) tx = 0.3f;
+        if (tx > (f32)GRID_COLS - 0.3f) tx = (f32)GRID_COLS - 0.3f;
+        d->active  = true;
+        d->x       = (f32)g->lawnX + tx * (f32)g->cellW;
+        d->groundY = (f32)g->lawnY + ((f32)z->row + 0.75f) * (f32)g->cellH;
+        d->y       = d->groundY - 18.0f;
+        d->vy      = -3.2f;
+        d->age     = 0;
+        d->value   = ((rand() % 100) < COIN_GOLD_PERCENT) ? COIN_GOLD_VALUE : COIN_SILVER_VALUE;
+        return;
+    }
+}
+
+/* Frame update: coins drop from zombies that started dying this frame, pop up,
+ * fall, rest and finally expire; the counter timer runs down. */
+static void UpdateCoins(GameContext* g)
+{
+    for (int i = 0; i < MAX_ZOMBIES; ++i)
+    {
+        const Zombie* z = &g->zombies[i];
+        const bool dying = z->active && z->state == ZSTATE_DYING && !z->movingRight;
+        if (dying && !s_wasDying[i] && (rand() % 100) < COIN_DROP_PERCENT)
+            SpawnCoinDrop(g, z);
+        s_wasDying[i] = dying;
+    }
+    for (int i = 0; i < MAX_COIN_DROPS; ++i)
+    {
+        CoinDrop* d = &s_drops[i];
+        if (!d->active) continue;
+        if (d->y < d->groundY || d->vy < 0.0f)
+        {
+            d->vy += 0.28f;
+            d->y  += d->vy;
+            if (d->y >= d->groundY && d->vy > 0.0f) { d->y = d->groundY; d->vy = 0.0f; }
+        }
+        if (++d->age > COIN_LIFETIME_FRAMES) d->active = false;
+    }
+    if (s_counterTimer > 0) --s_counterTimer;
+}
+
+static void CollectCoin(CoinDrop* d)
+{
+    LoadCoins();
+    s_coins += d->value; if (s_coins > 999999) s_coins = 999999;
+    s_coinsDirty = true;                 /* written by Coins_Flush at the next save point */
+    s_counterTimer = COIN_COUNTER_FRAMES;
+    Sfx_Play(d->value >= COIN_GOLD_VALUE ? SFX_DIAMOND : SFX_COIN);
+    d->active = false;
+}
+
+/* Collects every coin within COIN_PICK_RADIUS of (px,py). Returns true if any. */
+static bool CollectCoinsAt(f32 px, f32 py)
+{
+    bool any = false;
+    for (int i = 0; i < MAX_COIN_DROPS; ++i)
+    {
+        CoinDrop* d = &s_drops[i];
+        if (!d->active) continue;
+        f32 dx = px - d->x, dy = py - d->y;
+        if (dx * dx + dy * dy <= COIN_PICK_RADIUS * COIN_PICK_RADIUS) { CollectCoin(d); any = true; }
+    }
+    return any;
+}
+
+/* Pointer-less fallback: collect the coins lying on the tile-cursor's cell. */
+static bool CollectCoinsInCell(const GameContext* g, int col, int row)
+{
+    bool any = false;
+    for (int i = 0; i < MAX_COIN_DROPS; ++i)
+    {
+        CoinDrop* d = &s_drops[i];
+        if (!d->active) continue;
+        int c = (int)((d->x - g->lawnX) / g->cellW), r = (int)((d->y - g->lawnY) / g->cellH);
+        if (c == col && r == row) { CollectCoin(d); any = true; }
+    }
+    return any;
+}
+
+static void DrawCoinDrop(const CoinDrop* d)
+{
+    /* blink for the last 2 seconds so the player sees it is about to vanish */
+    if (d->age > COIN_LIFETIME_FRAMES - TARGET_FPS * 2 && ((d->age / 6) & 1)) return;
+    const bool gold = d->value >= COIN_GOLD_VALUE;
+    const u32 rim  = gold ? 0x9A6A00FF : 0x6E7378FF;
+    const u32 body = gold ? 0xFFC82EFF : 0xC8CDD2FF;
+    const u32 inner= gold ? 0xFFE27AFF : 0xEEF1F4FF;
+    const u32 shine= 0xFFFFFFC0;
+    GRRLIB_Circle(d->x, d->y + 1.0f, 11.0f, 0x00000050, true);   /* soft shadow */
+    GRRLIB_Circle(d->x, d->y, 10.0f, rim,  true);
+    GRRLIB_Circle(d->x, d->y, 8.5f,  body, true);
+    GRRLIB_Circle(d->x, d->y, 5.5f,  inner, true);
+    GRRLIB_Circle(d->x - 3.0f, d->y - 3.0f, 2.0f, shine, true);
+}
+
+/* ------------------------------------------------------------------ */
 /* Seed recharge                                                       */
 /* ------------------------------------------------------------------ */
 static u16  s_cd[PLANT_TYPE_COUNT];      /* frames left */
 static u16  s_cdMax[PLANT_TYPE_COUNT];
 static u8   s_prevCount[PLANT_TYPE_COUNT];
 static bool s_synced = false;
-static bool s_wonPaid = false;
 
 static u16 RechargeFrames(PlantType t)
 {
@@ -140,6 +285,12 @@ static u16 RechargeFrames(PlantType t)
         case RECHARGE_SLOW:      return 1800;   /* 30 s  */
         default:                 return 3000;   /* 50 s  */
     }
+}
+
+/** True while this seed packet is still recharging (cannot be selected or planted). */
+extern "C" bool Hud_IsRecharging(PlantType t)
+{
+    return t >= 0 && t < PLANT_TYPE_COUNT && s_cd[t] > 0;
 }
 
 static bool CooldownsOn(const GameContext* g)
@@ -193,7 +344,11 @@ static bool DigUp(GameContext* g, int col, int row)
     else if (cell->hasPumpkin)          { cell->hasPumpkin = false; cell->pumpkinHealth = 0; did = true; }
     else if (cell->hasLilyPad)          { cell->hasLilyPad = false; did = true; }
     else if (cell->hasFlowerPot)        { cell->hasFlowerPot = false; did = true; }
-    if (did) Particle_SpawnPoof(g->particles, (f32)col + 0.5f, (f32)row + 0.5f);
+    if (did)
+    {
+        Sfx_Play(SFX_SHOVEL);
+        Particle_SpawnPoof(g->particles, (f32)col + 0.5f, (f32)row + 0.5f);
+    }
     return did;
 }
 
@@ -205,12 +360,14 @@ extern "C" bool Hud_HandleInput(GameContext* game, const InputState* input)
     if (!input->cursorValid)
     {
         s_shovelHeld = false;
+        if (input->placePressed && CollectCoinsInCell(game, game->plantCol, game->plantRow))
+            return true;                /* A on a tile that holds a coin picks the coin up */
         /* Pointer-less fallback plants on a single A press: respect recharge. */
         if (cd && input->placePressed && game->selectedSlot >= 0 &&
             game->selectedSlot < (s8)game->selectedCount)
         {
             PlantType t = game->selectedPlants[game->selectedSlot];
-            if (t >= 0 && t < PLANT_TYPE_COUNT && s_cd[t] > 0) return true;
+            if (t >= 0 && t < PLANT_TYPE_COUNT && s_cd[t] > 0) { Sfx_Play(SFX_BUZZER); return true; }
         }
         return false;
     }
@@ -228,17 +385,20 @@ extern "C" bool Hud_HandleInput(GameContext* game, const InputState* input)
         s_shovelHeld = false;           /* click anywhere ends the dig (like seeds) */
         return true;
     }
+    if (CollectCoinsAt(px, py))         /* clicking a coin picks it up and uses up the click */
+        return true;
     if (hasShovel && InRect(px, py, sx, sy, sw, sh))
     {
         if (game->isHoldingSeed) Game_CancelHold(game);
         s_shovelHeld = true;
+        Sfx_Play(SFX_TAP);
         return true;
     }
     if (cd && !game->isHoldingSeed && input->hoveredSeedSlot >= 0 &&
         input->hoveredSeedSlot < (s8)game->selectedCount)
     {
         PlantType t = game->selectedPlants[input->hoveredSeedSlot];
-        if (t >= 0 && t < PLANT_TYPE_COUNT && s_cd[t] > 0) return true;  /* still recharging */
+        if (t >= 0 && t < PLANT_TYPE_COUNT && s_cd[t] > 0) { Sfx_Play(SFX_BUZZER); return true; }  /* still recharging */
     }
     return false;
 }
@@ -256,7 +416,7 @@ extern "C" void Hud_Update(GameContext* game)
         memcpy(s_prevCount, now, sizeof(now));
         s_synced = true;
     }
-    s_wonPaid = false;
+    UpdateCoins(game);
 
     if (CooldownsOn(game))
     {
@@ -278,23 +438,18 @@ extern "C" void Hud_Reset(void)
 {
     memset(s_cd, 0, sizeof(s_cd));
     memset(s_prevCount, 0, sizeof(s_prevCount));
-    s_synced = false; s_shovelHeld = false; s_wonPaid = false;
+    s_synced = false; s_shovelHeld = false;
+    ClearCoinDrops();
 }
 
-/** Call every frame from the render side: resets per-level state and pays
- *  the level-clear coin bonus once. Cheap; safe when paused. */
+/** Call every frame from the render side: resets per-level state. Cheap; safe when paused. */
 static void Poll(const GameContext* game)
 {
     if (game->state == GAME_STATE_SELECTING || game->state == GAME_STATE_GAME_OVER)
         s_synced = false;                       /* next PLAYING frame re-syncs */
     if (game->state != GAME_STATE_PLAYING)
         s_shovelHeld = false;
-    if (game->state == GAME_STATE_LEVEL_WON)
-    {
-        if (!s_wonPaid) { s_wonPaid = true; Coins_Add(COIN_LEVEL_BONUS); }
-    }
-    else if (game->state == GAME_STATE_PLAYING)
-        s_wonPaid = false;
+    /* No level-clear coin bonus any more: coins only come from clicking drops. */
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,14 +492,29 @@ extern "C" void Hud_DrawCooldown(int slotX, int slotY, int w, int h, int plantTy
 extern "C" void Hud_DrawExtras(const GameContext* game, const InputState* input)
 {
     (void)input;
-    /* Coin bank, bottom-right (the dark lower margin of the lawn) */
-    if (s_coinBank && s_coinBank->data)
+    /* Coins lying on the lawn (click to collect) */
+    for (int i = 0; i < MAX_COIN_DROPS; ++i)
+        if (s_drops[i].active) DrawCoinDrop(&s_drops[i]);
+
+    /* Coin counter, bottom-left: only on screen for 3 s after a coin was picked
+     * up (the timer restarts with every pickup); fades out over its last half second. */
+    if (s_counterTimer > 0)
     {
-        const int bx = SCREEN_WIDTH - 108, by = SCREEN_HEIGHT - 26;
-        DrawTex(s_coinBank, (f32)bx, (f32)by, 1.0f, 1.0f, 0, 0xFFFFFFFF);
+        u32 a = 255;
+        if (s_counterTimer < TARGET_FPS / 2) a = (u32)s_counterTimer * 255u / (u32)(TARGET_FPS / 2);
+        const int bx = 8, by = SCREEN_HEIGHT - 32;
         char buf[12];
         snprintf(buf, sizeof(buf), "%u", (unsigned)Coins_Get());
-        Render_DrawTextCentered((s16)(bx + 68), (s16)(by + 4), 0xFFE27AFF, 14, buf);
+        if (s_coinBank && s_coinBank->data)
+        {
+            DrawTex(s_coinBank, (f32)bx, (f32)by, 1.0f, 1.0f, 0, 0xFFFFFF00u | a);
+            Render_DrawTextCentered((s16)(bx + 68), (s16)(by + 4), 0xFFE27A00u | a, 14, buf);
+        }
+        else
+        {
+            GRRLIB_Rectangle((f32)bx, (f32)by, 104.0f, 24.0f, 0x8B4A2300u | a, true);
+            Render_DrawTextCentered((s16)(bx + 68), (s16)(by + 4), 0xFFE27A00u | a, 14, buf);
+        }
     }
     /* Shovel slot (only once the item has been earned) */
     if (Items_HasShovel() && s_shovelSlot && s_shovelSlot->data)

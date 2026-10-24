@@ -6,6 +6,8 @@
 #include "audio.h"
 #include "level.h"
 #include "survival.h"
+#include "minigame.h"
+#include "save.h"
 
 #include <gccore.h>
 #include <stdlib.h>
@@ -224,6 +226,11 @@ int main(int argc, char** argv)
     Menu_Init(&menu);
     Menu_ShowTitle(&menu, &settings);
 
+    /* Win / loss bookkeeping (each fires once per level, on the frame the state changes). */
+    GameState prevState = game.state;
+    bool      winPending = false;      /* won with no reward screen: short pause, then on */
+    int       winTimer   = 0;
+
     while (1)
     {
         Input_Update(&input, &settings);
@@ -255,7 +262,7 @@ int main(int argc, char** argv)
             if (input.menuTogglePressed)
             {
                 /* Quick start: start Adventure immediately with Peashooter */
-                Level_Start(&game, 0); /* adventure levels auto-fill the seed bar and start */
+                Level_Start(&game, (u8)Save_GetAdventureLevel()); /* continue the saved Adventure level; auto-fills the seed bar and starts */
                 menu.screen = MENU_CLOSED;
             }
             else
@@ -266,6 +273,7 @@ int main(int argc, char** argv)
             if (menu.quitRequested)
             {
                 Settings_Save(&settings);
+                Save_OnExit();             /* exiting: flush progress + coins */
                 break;
             }
         }
@@ -287,22 +295,34 @@ int main(int argc, char** argv)
                 Game_HandleInput(&game, &input);
                 Game_Update(&game, &input);
 
-                if (game.state == GAME_STATE_LEVEL_WON)
+                const bool adventure = !Survival_IsSurvival(game.currentLevelIndex) &&
+                                       !Minigame_IsMinigame(game.currentLevelIndex);
+
+                if (game.state == GAME_STATE_LEVEL_WON && prevState != GAME_STATE_LEVEL_WON)
                 {
-                    /* A newly unlocked plant gets its own "New Plant!" screen first;
-                     * Continue there leads on to the usual victory menu. */
-                    menu.screen = (game.newRewardPlant != PLANT_NONE) ? MENU_NEW_PLANT : MENU_VICTORY;
-                    menu.cursorIndex = 0;
-                    menu.canNextLevel = game.currentLevelIndex < (u8)(TOTAL_LEVELS - 1) &&
-                                        !Survival_IsSurvival(game.currentLevelIndex);
-                    menu.rewardPlant = game.newRewardPlant;
-                    game.newRewardPlant = PLANT_NONE;
+                    /* Level completed: SAVE (progress moves on), then show the plant / item
+                     * reward screen if the level has one ([Next Level] + [Title Screen]).
+                     * There is no separate "Level Finish" screen any more; without a reward
+                     * the win just plays out for 3 s and the next level begins. */
+                    Save_OnLevelWon(game.currentLevelIndex, adventure);
+                    winPending = !Menu_ShowWinScreens(&menu, &game);
+                    winTimer   = LEVEL_INTERMISSION_FRAMES;
                 }
-                else if (game.state == GAME_STATE_GAME_OVER)
+                else if (game.state == GAME_STATE_GAME_OVER && prevState != GAME_STATE_GAME_OVER)
                 {
+                    Save_OnLevelLost(game.currentLevelIndex, adventure);   /* level lost: SAVE */
                     menu.screen = MENU_DEFEAT;
                     menu.cursorIndex = 0;
                 }
+
+                if (winPending && game.state == GAME_STATE_LEVEL_WON && !Menu_IsOpen(&menu) && --winTimer <= 0)
+                {
+                    winPending = false;
+                    Menu_AdvanceAfterWin(&menu, &settings, &game);
+                }
+                if (game.state != GAME_STATE_LEVEL_WON)
+                    winPending = false;
+                prevState = game.state;
             }
         }
 

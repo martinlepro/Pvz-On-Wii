@@ -10,6 +10,7 @@
 #include "particle.h"
 #include "survival.h"
 #include "backdrop.h"
+#include "sfx.h"
 
 #include <ogc/lwp_watchdog.h>
 #include <stdlib.h>
@@ -21,6 +22,9 @@ extern "C" void Mower_Update(GameContext* game);
 extern "C" void Hud_Update(GameContext* game);                          /* hud.cpp */
 extern "C" void Tutorial_Update(GameContext* game);                     /* tutorial.cpp */
 extern "C" bool Hud_HandleInput(GameContext* game, const InputState* input);
+extern "C" void Sfx_PollGame(const GameContext* game);                  /* sfx_events.cpp */
+extern "C" void Sfx_PlantPlaced(PlantType type, bool onWater);          /* sfx_events.cpp */
+extern "C" bool Hud_IsRecharging(PlantType type);                       /* hud.cpp: seed packet still on cooldown */
 
 /* -------------------------------------------------------------------------- */
 /* Internal helpers                                                           */
@@ -46,11 +50,13 @@ static bool CanAfford(const GameContext* game, PlantType type)
     return game->sun >= total;
 }
 
-static bool TryPlantAtCell(GameContext* game, s8 col, s8 row, PlantType type)
+static bool TryPlantAtCellImpl(GameContext* game, s8 col, s8 row, PlantType type)
 {
     if (!Game_IsValidCellForWorld(game, col, row))
         return false;
     if (type < 0 || type >= PLANT_TYPE_COUNT)
+        return false;
+    if (Hud_IsRecharging(type))      /* a packet that is still recharging can never be planted */
         return false;
     GridCell* cell = &game->grid[row][col];
     if (!CanAfford(game, type))
@@ -152,6 +158,16 @@ static bool TryPlantAtCell(GameContext* game, s8 col, s8 row, PlantType type)
         Combat_TriggerCherryBomb(game, col, row);
     }
     Minigame_OnPlantPlaced(game, col, row, type);
+    return true;
+}
+
+/* Plants the seed and plays the planting sound on success. */
+static bool TryPlantAtCell(GameContext* game, s8 col, s8 row, PlantType type)
+{
+    if (!TryPlantAtCellImpl(game, col, row, type))
+        return false;
+    const bool onWater = (game->worldFlags & WORLD_FLAG_HAS_WATER) && (row == 2 || row == 3);
+    Sfx_PlantPlaced(type, onWater);
     return true;
 }
 
@@ -305,6 +321,7 @@ static void UpdateSunDrops(GameContext* game, const InputState* input)
             {
                 u32 total = (u32)game->sun + SUN_VALUE;
                 game->sun = (u16)(total > 9999 ? 9999 : total);
+                Sfx_Play(SFX_POINTS);
                 f32 tx = (s->x - (f32)game->lawnX) / (f32)game->cellW;
                 f32 ty = (s->y - (f32)game->lawnY) / (f32)game->cellH;
                 Particle_Spawn(game->particles, PARTICLE_SUN_SPARKLE, tx, ty, 5);
@@ -464,6 +481,7 @@ void Game_ToggleSelection(GameContext* game, PlantType type)
             for (u8 j = i; j + 1 < game->selectedCount; ++j)
                 game->selectedPlants[j] = game->selectedPlants[j + 1];
             game->selectedCount--;
+            Sfx_Play(SFX_TAP2);
             return;
         }
     }
@@ -472,6 +490,7 @@ void Game_ToggleSelection(GameContext* game, PlantType type)
     if (game->selectedCount < MAX_SELECTED_PLANTS)
     {
         game->selectedPlants[game->selectedCount++] = type;
+        Sfx_Play(SFX_TAP);
     }
 }
 
@@ -545,7 +564,8 @@ void Game_HandleInput(GameContext* game, const InputState* input)
 
     /* Hovering a seed-bar slot with the IR cursor updates the selection
      * (used for the highlight, and as the fallback-path grab target). */
-    if (input->hoveredSeedSlot >= 0 && input->hoveredSeedSlot < game->selectedCount)
+    if (input->hoveredSeedSlot >= 0 && input->hoveredSeedSlot < game->selectedCount &&
+        !Hud_IsRecharging(SlotToPlant(game, input->hoveredSeedSlot)))   /* recharging packets can't be selected */
         game->selectedSlot = input->hoveredSeedSlot;
 
     if (input->cursorValid)
@@ -569,17 +589,25 @@ void Game_HandleInput(GameContext* game, const InputState* input)
             {
                 if (input->hoveredSeedSlot >= 0)
                 {
-                    PlantType selected = SlotToPlant(game, game->selectedSlot);
-                    if (selected != PLANT_NONE && CanAfford(game, selected))
+                    /* the packet under the pointer, not whatever was selected before */
+                    PlantType selected = SlotToPlant(game, input->hoveredSeedSlot);
+                    if (selected != PLANT_NONE && Hud_IsRecharging(selected))
+                        Sfx_Play(SFX_BUZZER);   /* still recharging */
+                    else if (selected != PLANT_NONE && CanAfford(game, selected))
                     {
+                        game->selectedSlot = input->hoveredSeedSlot;
                         game->isHoldingSeed = true;
                         game->heldPlant = selected;
+                        Sfx_Play(SFX_SEEDLIFT);
                     }
+                    else if (selected != PLANT_NONE)
+                        Sfx_Play(SFX_BUZZER);   /* cannot afford it */
                 }
             }
             else if (input->hoveredSeedSlot >= 0)
             {
                 Game_CancelHold(game);
+                Sfx_Play(SFX_TAP2);
             }
             else
             {
@@ -605,12 +633,20 @@ void Game_HandleInput(GameContext* game, const InputState* input)
         game->plantCol = ClampS8(col, PLANT_CURSOR_COL_MIN, PLANT_CURSOR_COL_MAX);
         game->plantRow = ClampS8(row, PLANT_CURSOR_ROW_MIN, rowMax);
 
-        if (game->selectedCount > 0)
+        if (game->selectedCount > 0 && (input->moveRightPressed || input->moveLeftPressed))
         {
-            if (input->moveRightPressed)
-                game->selectedSlot = (s8)((game->selectedSlot + 1) % game->selectedCount);
-            if (input->moveLeftPressed)
-                game->selectedSlot = (s8)((game->selectedSlot + game->selectedCount - 1) % game->selectedCount);
+            /* Cycle to the next packet that is NOT recharging (stay put if all are). */
+            const int step = input->moveRightPressed ? 1 : (int)game->selectedCount - 1;
+            int s = game->selectedSlot;
+            for (int n = 0; n < (int)game->selectedCount; ++n)
+            {
+                s = (s + step) % (int)game->selectedCount;
+                if (!Hud_IsRecharging(SlotToPlant(game, (s8)s)))
+                {
+                    game->selectedSlot = (s8)s;
+                    break;
+                }
+            }
         }
 
         if (input->placePressed && Game_IsValidCellForWorld(game, game->plantCol, game->plantRow))
@@ -681,6 +717,7 @@ void Game_Update(GameContext* game, const InputState* input)
         {
             game->state = GAME_STATE_GAME_OVER;
             game->levelIntermissionTimer = TARGET_FPS * 2;
+            Sfx_PollGame(game);   /* scream + lose jingle */
             return;
         }
     }
@@ -715,4 +752,6 @@ void Game_Update(GameContext* game, const InputState* input)
         game->selectionCursor = 0;
         game->state = GAME_STATE_SELECTING;
     }
+
+    Sfx_PollGame(game);   /* sound effects for everything that happened this frame */
 }

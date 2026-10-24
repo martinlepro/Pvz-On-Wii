@@ -44,6 +44,13 @@ static void UpdateCursorFromIR(InputState* input)
     }
 }
 
+/** Width reserved for the sun counter at the left of the seed bar. MUST equal
+ *  `sunPanelWidth` in render.cpp's DrawSeedBar (and the 130 used by its seed
+ *  tooltip and by tutorial.cpp). This used to be 64 here, so every click area
+ *  sat ~66px (about one packet) to the left of the packet that was drawn: you
+ *  had to click the packet BEFORE the one you wanted. */
+#define SEED_BAR_SUN_PANEL_W 130
+
 /** Mirrors the seed-bar slot geometry drawn in render.cpp (DrawSeedBar). */
 static s8 ComputeHoveredSeedSlot(f32 x, f32 y, bool valid)
 {
@@ -56,7 +63,7 @@ static s8 ComputeHoveredSeedSlot(f32 x, f32 y, bool valid)
 
     for (s8 i = 0; i < SEED_SLOT_COUNT; ++i)
     {
-        s16 slotX = SEED_BAR_PADDING + 64 + i * (SEED_SLOT_WIDTH + SEED_BAR_PADDING);
+        s16 slotX = SEED_BAR_PADDING + SEED_BAR_SUN_PANEL_W + i * (SEED_SLOT_WIDTH + SEED_BAR_PADDING);
         if (x >= (f32)slotX && x < (f32)(slotX + SEED_SLOT_WIDTH))
             return i;
     }
