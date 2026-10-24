@@ -1,6 +1,7 @@
 #include "audio.h"
 #include "survival.h"
 #include "minigame.h"
+#include "sfx.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -40,6 +41,8 @@ void Audio_Init(void)
     MP3Player_Init();
     s_masterVolume = 200;
     MP3Player_Volume(s_masterVolume);
+    Sfx_Init();
+    Sfx_SetMasterVolume(s_masterVolume);
     s_bgmData = NULL;
     s_bgmDataSize = 0;
     s_bgmLooping = false;
@@ -48,11 +51,14 @@ void Audio_Init(void)
 void Audio_Shutdown(void)
 {
     Audio_StopBGM();
+    Sfx_Shutdown();
     ASND_End();
 }
 
 void Audio_Update(void)
 {
+    Sfx_Update();
+
     /* MP3Player has no built-in loop option -- restart playback each time
      * the current track finishes so BGM loops for as long as the level is
      * active. */
@@ -197,6 +203,7 @@ void Audio_SetMasterVolume(u8 volume)
 {
     s_masterVolume = volume;
     MP3Player_Volume(s_masterVolume);
+    Sfx_SetMasterVolume(volume);
 }
 
 u8 Audio_GetMasterVolume(void)

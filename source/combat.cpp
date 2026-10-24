@@ -4,6 +4,9 @@
 #include "game.h"
 #include "particle.h"
 #include "zombie.h"
+#include "sfx.h"
+
+extern "C" void Sfx_PlantTriggered(PlantType type);   /* sfx_events.cpp */
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -295,6 +298,7 @@ static void CheckInstants(GameContext* game) {
 
             switch (cell->plant) {
                 case PLANT_CHERRY_BOMB:
+                    Sfx_PlantTriggered(PLANT_CHERRY_BOMB);
                     Particle_SpawnExplosion(game->particles, (f32)col + 0.5f, (f32)row + 0.5f);
                     cell->plant = PLANT_NONE;
                     cell->health = 0;
@@ -303,11 +307,13 @@ static void CheckInstants(GameContext* game) {
                 case PLANT_POTATO_MINE: {
                     if (cell->shootTimer < 900) {
                         cell->shootTimer++;
+                        if (cell->shootTimer == 900) Sfx_Play(SFX_DIRT_RISE);   /* armed */
                         break;
                     }
                     int zi = Zombie_ClosestToCell(game->zombies, col, row, 1.2f);
                     if (zi >= 0) {
                         Zombie_DamageInBlastRadius(game->zombies, col, row, 1, 1800);
+                        Sfx_PlantTriggered(PLANT_POTATO_MINE);
                         Particle_SpawnExplosion(game->particles, (f32)col + 0.5f, (f32)row + 0.5f);
                         cell->plant = PLANT_NONE;
                         cell->health = 0;
@@ -319,6 +325,7 @@ static void CheckInstants(GameContext* game) {
                     int zi = Zombie_ClosestToCell(game->zombies, col, row, 1.2f);
                     if (zi >= 0) {
                         Zombie_DamageInBlastRadius(game->zombies, col, row, 0, 1800);
+                        Sfx_PlantTriggered(PLANT_SQUASH);
                         Particle_SpawnPoof(game->particles, (f32)col + 0.5f, (f32)row + 0.5f);
                         cell->plant = PLANT_NONE;
                         cell->health = 0;
@@ -331,11 +338,13 @@ static void CheckInstants(GameContext* game) {
                     if (zi >= 0 && cell->shootTimer == 0) {
                         Zombie* target = &game->zombies[zi];
                         if (target->health <= 400) {
+                            Sfx_PlantTriggered(PLANT_CHOMPER);
                             target->state = ZSTATE_DYING;
                             target->deathTimer = ZOMBIE_DEATH_FADE_FRAMES;
                             cell->shootTimer = 42 * TARGET_FPS; /* ~42s chewing */
                         } else {
                             target->health -= 40;
+                            Sfx_PlayVol(SFX_CHOMP, 200);
                             cell->shootTimer = TARGET_FPS; /* bite cooldown */
                         }
                     }
@@ -347,6 +356,7 @@ static void CheckInstants(GameContext* game) {
                     int zi = Zombie_ClosestToCell(game->zombies, col, row, 1.2f);
                     if (zi >= 0) {
                         Zombie_DamageInBlastRadius(game->zombies, col, row, 0, 1800);
+                        Sfx_PlantTriggered(PLANT_TANGLE_KELP);
                         cell->plant = PLANT_NONE;
                         cell->health = 0;
                     }
@@ -354,6 +364,7 @@ static void CheckInstants(GameContext* game) {
                 }
 
                 case PLANT_JALAPENO:
+                    Sfx_PlantTriggered(PLANT_JALAPENO);
                     Zombie_DamageInRow(game->zombies, (u8)row, JALAPENO_DAMAGE);
                     Particle_SpawnExplosion(game->particles, (f32)col + 0.5f, (f32)row + 0.5f);
                     cell->plant = PLANT_NONE;
@@ -361,6 +372,7 @@ static void CheckInstants(GameContext* game) {
                     break;
 
                 case PLANT_ICE_SHROOM:
+                    Sfx_PlantTriggered(PLANT_ICE_SHROOM);
                     Zombie_FreezeAll(game->zombies, ICE_FREEZE_FRAMES);
                     Particle_SpawnIce(game->particles, (f32)col + 0.5f, (f32)row + 0.5f);
                     cell->plant = PLANT_NONE;
@@ -368,6 +380,7 @@ static void CheckInstants(GameContext* game) {
                     break;
 
                 case PLANT_DOOM_SHROOM:
+                    Sfx_PlantTriggered(PLANT_DOOM_SHROOM);
                     Zombie_DamageInBlastRadius(game->zombies, col, row, DOOM_SHROOM_RADIUS_TILES, 1800);
                     Particle_SpawnExplosion(game->particles, (f32)col + 0.5f, (f32)row + 0.5f);
                     cell->plant = PLANT_NONE;
@@ -393,6 +406,7 @@ static void CheckInstants(GameContext* game) {
                         if (z->x < (f32)col) continue;
                         if (Zombie_RemoveMetal(z)) {
                             cell->shootTimer = TARGET_FPS * 15; /* 15s cooldown */
+                            Sfx_PlantTriggered(PLANT_MAGNET_SHROOM);
                             break;
                         }
                     }
@@ -401,6 +415,7 @@ static void CheckInstants(GameContext* game) {
                 }
 
                 case PLANT_COFFEE_BEAN: {
+                    Sfx_PlantTriggered(PLANT_COFFEE_BEAN);
                     /* Wake sleeping mushrooms on this cell */
                     /* Coffee Bean is placed on top of an existing shroom,
                      * but we handle it by checking if a mushroom is here
@@ -413,6 +428,7 @@ static void CheckInstants(GameContext* game) {
                 }
 
                 case PLANT_BLOVER: {
+                    Sfx_PlantTriggered(PLANT_BLOVER);
                     /* Blow away all balloon zombies + fog */
                     for (int zi = 0; zi < MAX_ZOMBIES; zi++) {
                         Zombie* z = &game->zombies[zi];

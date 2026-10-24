@@ -7,6 +7,7 @@
 #include "game.h"
 #include "minigame.h"
 #include "particle.h"
+#include "sfx.h"
 
 /*
  * One row per ZombieType. Order must match the ZombieType enum in zombie.h.
@@ -333,6 +334,8 @@ bool Zombie_UpdateAll(GameContext* game) {
 
             if (z->specialTimer == 0) {
                 /* Explode: damage nearby plants */
+                Sfx_Play(SFX_JACK_SURPRISE);
+                Sfx_Play(SFX_EXPLOSION);
                 Particle_SpawnExplosion(game->particles, z->x, (f32)z->row + 0.5f);
                 if (onGrid) { cell->plant = PLANT_NONE; cell->health = 0; }
                 for (s8 dr = -1; dr <= 1; dr++) {

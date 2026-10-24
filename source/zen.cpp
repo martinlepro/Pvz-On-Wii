@@ -25,6 +25,7 @@
 #include "input.h"
 #include "constants.h"
 #include "types.h"
+#include "sfx.h"
 #include <grrlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -229,8 +230,8 @@ extern "C" bool Zen_Update(const InputState* in, unsigned wpadDown)
             {
                 if (s_nstash >= STASH_MAX) { AddPop(px, py, 0); return false; }
                 if (Coins_Spend(kShop[i].price))
-                { s_stash[s_nstash].type = (s8)kShop[i].type; s_stash[s_nstash].stage = 0; s_nstash++; Save(); }
-                else AddPop(px, py, 0);
+                { s_stash[s_nstash].type = (s8)kShop[i].type; s_stash[s_nstash].stage = 0; s_nstash++; Save(); Sfx_Play(SFX_COIN); }
+                else { AddPop(px, py, 0); Sfx_Play(SFX_BUZZER); }
                 return false;
             }
         return false;
@@ -251,6 +252,7 @@ extern "C" bool Zen_Update(const InputState* in, unsigned wpadDown)
         {
             unsigned v = PriceOf(s_hand.type) / 2 + 12u * s_hand.stage;
             Coins_Add(v); AddPop(MONEY_X + 28, TB_Y - 6, (int)v);
+            Sfx_Play(SFX_COIN);
             s_hand.type = -1; s_handFromG = -1; Save();
         }
         else s_shop = true;
@@ -269,11 +271,13 @@ extern "C" bool Zen_Update(const InputState* in, unsigned wpadDown)
         if (sl->s.type >= 0 && sl->thirsty)
         {
             sl->thirsty = false; sl->thirst = 0;
-            if (sl->s.stage + 1 < STAGES) sl->s.stage++;
+            Sfx_Play(SFX_WATERING);
+            if (sl->s.stage + 1 < STAGES) { sl->s.stage++; Sfx_Play(SFX_PLANTGROW); }
             else
             {
                 int v = (rand() % 5 == 0) ? 50 : 10;      /* gold coin sometimes */
                 Coins_Add((unsigned)v); AddPop(sx, sy - 50, v);
+                Sfx_Play(v == 50 ? SFX_DIAMOND : SFX_COIN);
             }
             Save();
         }
@@ -282,12 +286,13 @@ extern "C" bool Zen_Update(const InputState* in, unsigned wpadDown)
     {
         if (s_hand.type < 0)
         {
-            if (sl->s.type >= 0) { s_hand = sl->s; sl->s.type = -1; s_handFromG = s_garden; s_handFromI = i; }
+            if (sl->s.type >= 0) { s_hand = sl->s; sl->s.type = -1; s_handFromG = s_garden; s_handFromI = i; Sfx_Play(SFX_TAP); }
         }
         else
         {
             Seedling prev = sl->s;
             sl->s = s_hand; sl->thirst = 0; sl->thirsty = true;
+            Sfx_Play(SFX_PLANT);
             if (prev.type >= 0) { s_hand = prev; s_handFromG = s_garden; s_handFromI = i; }
             else { s_hand.type = -1; s_handFromG = s_handFromI = -1; }
             Save();

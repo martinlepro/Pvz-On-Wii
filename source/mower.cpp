@@ -27,6 +27,7 @@
 #include "zombie.h"
 #include "particle.h"
 #include "survival.h"
+#include "sfx.h"
 #include <grrlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -183,7 +184,12 @@ extern "C" void Mower_Update(GameContext* game)
                 if (!z->active || z->row != r) continue;
                 if (z->state == ZSTATE_DYING || z->state == ZSTATE_FLYING ||
                     z->state == ZSTATE_DIGGING) continue;
-                if (z->x < MOWER_TRIGGER_X) { m->running = true; break; }
+                if (z->x < MOWER_TRIGGER_X)
+                {
+                    m->running = true;
+                    Sfx_Play(m->kind == K_POOL ? SFX_POOL_CLEANER : SFX_LAWNMOWER);
+                    break;
+                }
             }
             continue;
         }

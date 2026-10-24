@@ -35,6 +35,7 @@
 #include "input.h"
 #include "constants.h"
 #include "backdrop.h"
+#include "sfx.h"
 #include "types.h"
 #include <grrlib.h>
 #include <stdio.h>
@@ -285,9 +286,10 @@ static void SpawnShards(int kind, f32 cx, f32 cy)
 static void BreakVase(Vase* v)
 {
     v->alive = false; v->breakT = 14;
+    Sfx_Play(SFX_VASE_BREAKING);
     SpawnShards(v->kind, LX + v->col * CW + CW * 0.5f, LY + v->row * CH + CH * 0.5f);
-    if (v->contentIsZombie) SpawnZombie(v->content, v->row, v->col + 0.5f);
-    else if (s_nseed < MAXSEED) s_seed[s_nseed++] = v->content;
+    if (v->contentIsZombie) { SpawnZombie(v->content, v->row, v->col + 0.5f); Sfx_Play(SFX_GROAN); }
+    else if (s_nseed < MAXSEED) { s_seed[s_nseed++] = v->content; Sfx_Play(SFX_POINTS); }
 }
 
 static bool VaseAt(int col, int row)
@@ -305,7 +307,12 @@ static bool ZombieInRow(int row, f32 minX)
     for (int i = 0; i < MAXZ; ++i) if (s_z[i].a && s_z[i].row == row && s_z[i].x > minX) return true;
     return false;
 }
-static void Hurt(Zomb* z, int dmg) { z->hp -= (s16)dmg; if (z->hp <= 0) z->a = false; }
+static void Hurt(Zomb* z, int dmg)
+{
+    z->hp -= (s16)dmg;
+    if (z->hp <= 0) { z->a = false; Sfx_Play(SFX_ZOMBIE_FALLING_1); }
+    else if (dmg < 300) Sfx_Play((s_frame & 1) ? SFX_SPLAT2 : SFX_SPLAT);
+}
 static void AddBoom(f32 x, f32 y)
 { for (int i = 0; i < 8; ++i) if (!s_boom[i].a) { s_boom[i].a = true; s_boom[i].x = x; s_boom[i].y = y; s_boom[i].t = 0; return; } }
 static void FirePea(int row, f32 x, bool snow)
@@ -313,6 +320,7 @@ static void FirePea(int row, f32 x, bool snow)
 
 static void PlacePlant(int type, int col, int row)
 {
+    Sfx_Play(SFX_PLANT);
     for (int i = 0; i < MAXP; ++i)
         if (!s_p[i].a) { s_p[i].a = true; s_p[i].type = (u8)type; s_p[i].col = (u8)col; s_p[i].row = (u8)row;
                          s_p[i].hp = kPlantHp[type]; s_p[i].timer = (type == PT_MINE) ? 240 : 30; return; }
@@ -341,13 +349,14 @@ static void SimStep(void)
             for (int j = 0; j < MAXZ; ++j)
                 if (s_z[j].a && abs((int)s_z[j].row - (int)p->row) <= 1 && fabsf(s_z[j].x - cx) < 1.6f) Hurt(&s_z[j], 1800);
             AddBoom(LX + cx * CW, LY + p->row * CH + CH * 0.5f);
+            Sfx_Play(SFX_CHERRYBOMB);
             p->a = false;
         }
         else if (p->type == PT_SQUASH)
         {
             for (int j = 0; j < MAXZ; ++j)
                 if (s_z[j].a && s_z[j].row == p->row && s_z[j].x > cx - 0.3f && s_z[j].x < cx + 1.8f)
-                { Hurt(&s_z[j], 1800); AddBoom(LX + s_z[j].x * CW, LY + p->row * CH + CH * 0.6f); p->a = false; break; }
+                { Hurt(&s_z[j], 1800); AddBoom(LX + s_z[j].x * CW, LY + p->row * CH + CH * 0.6f); Sfx_Play(SFX_SQUASH_HMM); p->a = false; break; }
         }
         else if (p->type == PT_MINE)
         {
@@ -357,7 +366,7 @@ static void SimStep(void)
                 {
                     for (int k = 0; k < MAXZ; ++k)
                         if (s_z[k].a && s_z[k].row == p->row && fabsf(s_z[k].x - cx) < 0.9f) Hurt(&s_z[k], 1800);
-                    AddBoom(LX + cx * CW, LY + p->row * CH + CH * 0.6f); p->a = false; break;
+                    AddBoom(LX + cx * CW, LY + p->row * CH + CH * 0.6f); Sfx_Play(SFX_POTATO_MINE); p->a = false; break;
                 }
         }
     }
@@ -382,9 +391,13 @@ static void SimStep(void)
             if (s_p[k].a && s_p[k].row == z->row && s_p[k].type != PT_MINE) {
                 f32 pc = s_p[k].col + 0.5f;
                 if (pc < z->x && pc > z->x - 0.6f) { eat = &s_p[k]; break; } }
-        if (eat) { eat->hp -= (z->slow ? 1 : 2) ; if (eat->hp <= 0) eat->a = false; } /* ~100/60 dps */
+        if (eat) { if (((s_frame + (u32)i) % 40) == 0) Sfx_PlayVol(SFX_CHOMP, 150); eat->hp -= (z->slow ? 1 : 2) ; if (eat->hp <= 0) eat->a = false; } /* ~100/60 dps */
         else z->x -= 0.0040f * (z->slow ? 0.5f : 1.0f);
-        if (z->x < 0.1f) { s_result = R_LOST; s_resultCursor = 0; }
+        if (z->x < 0.1f)
+        {
+            if (s_result != R_LOST) { Sfx_Play(SFX_SCREAM); Sfx_PlayDelayed(SFX_LOSEMUSIC, 100, 255); }
+            s_result = R_LOST; s_resultCursor = 0;
+        }
     }
     /* win check */
     if (s_result == R_PLAY)
@@ -395,6 +408,8 @@ static void SimStep(void)
         if (!any)
         {
             s_result = R_WON; s_resultCursor = 0;
+            Sfx_Play(SFX_WINMUSIC);
+            Sfx_PlayDelayed(SFX_COIN, 90, 255);
             if (s_level + 1 > s_cleared) { s_cleared = s_level + 1; SaveProgress(); }
             Coins_Add(COINS_PER_WIN);
         }
@@ -418,7 +433,7 @@ static void ClickPlay(const InputState* in)
     /* seed bar */
     for (int i = 0; i < s_nseed && i < 9; ++i)
         if (In(px, py, SEED_X0 + i * (SEED_W + 4), SEED_Y, SEED_W, SEED_H))
-        { s_held = (s_held == i) ? -1 : i; return; }
+        { s_held = (s_held == i) ? -1 : i; Sfx_Play(s_held >= 0 ? SFX_SEEDLIFT : SFX_TAP2); return; }
     int col = (int)((px - LX) / CW), row = (int)((py - LY) / CH);
     if (px < LX || py < LY || col < 0 || col >= GRID_COLS || row < 0 || row >= ROWS) { s_held = -1; return; }
     if (s_held >= 0)
@@ -455,7 +470,7 @@ extern "C" void Modes_Open(void)
 }
 extern "C" bool Modes_Active(void) { return s_screen != S_NONE; }
 
-extern "C" void Modes_Update(const InputState* in, unsigned wpadDown)
+static void ModesUpdateImpl(const InputState* in, unsigned wpadDown)
 {
     s_frame++;
     const bool home = (wpadDown & 0x0080) != 0;   /* WPAD_BUTTON_HOME */
@@ -510,6 +525,18 @@ extern "C" void Modes_Update(const InputState* in, unsigned wpadDown)
             }
         }
     }
+}
+
+/* Menu sounds around the real update: click when the screen changes, blip when the
+ * highlight moves. */
+extern "C" void Modes_Update(const InputState* in, unsigned wpadDown)
+{
+    const int prevScreen = (int)s_screen, prevCursor = s_cursor, prevResult = s_resultCursor;
+    ModesUpdateImpl(in, wpadDown);
+    if ((int)s_screen != prevScreen)
+        Sfx_Play(SFX_BUTTONCLICK);
+    else if (s_cursor != prevCursor || s_resultCursor != prevResult)
+        Sfx_Play(SFX_BLEEP);
 }
 
 /* ------------------------------------------------------------------ */
